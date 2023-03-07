@@ -40,6 +40,7 @@ class SIAAlarmControlPanelEntityDescription(
 ENTITY_DESCRIPTION_ALARM = SIAAlarmControlPanelEntityDescription(
     key=KEY_ALARM,
     code_consequences={
+        "AT": STATE_ALARM_TRIGGERED,
         "PA": STATE_ALARM_TRIGGERED,
         "JA": STATE_ALARM_TRIGGERED,
         "TA": STATE_ALARM_TRIGGERED,
@@ -66,6 +67,7 @@ ENTITY_DESCRIPTION_ALARM = SIAAlarmControlPanelEntityDescription(
         "OS": STATE_ALARM_DISARMED,
         "NC": STATE_ALARM_ARMED_NIGHT,
         "NL": STATE_ALARM_ARMED_NIGHT,
+        "AR": PREVIOUS_STATE,
         "BR": PREVIOUS_STATE,
         "NP": PREVIOUS_STATE,
         "NO": PREVIOUS_STATE,
