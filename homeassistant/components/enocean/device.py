@@ -6,7 +6,8 @@ from enocean.utils import combine_hex
 from homeassistant.helpers.dispatcher import async_dispatcher_connect, dispatcher_send
 from homeassistant.helpers.entity import Entity
 
-from .const import SIGNAL_RECEIVE_MESSAGE, SIGNAL_SEND_MESSAGE
+from .const import DATA_ENOCEAN, ENOCEAN_DONGLE, SIGNAL_RECEIVE_MESSAGE, SIGNAL_SEND_MESSAGE
+from .dongle import EnOceanDongle
 
 
 class EnOceanEntity(Entity):
@@ -33,8 +34,18 @@ class EnOceanEntity(Entity):
     def value_changed(self, packet):
         """Update the internal state of the device when a packet arrives."""
 
-    def send_command(self, data, optional, packet_type):
+    def send_command(self, packet_type, rorg, rorg_func, rorg_type, command, **kwargs):
         """Send a command via the EnOcean dongle."""
 
-        packet = Packet(packet_type, data=data, optional=optional)
+        dongle: EnOceanDongle = self.hass.data[DATA_ENOCEAN][ENOCEAN_DONGLE]
+        packet = Packet.create(
+            packet_type=packet_type,
+            rorg=rorg,
+            rorg_func=rorg_func,
+            rorg_type=rorg_type,
+            command=command,
+            sender=dongle.sender_id,
+            destination=self.dev_id,
+            **kwargs
+        )
         dispatcher_send(self.hass, SIGNAL_SEND_MESSAGE, packet)

@@ -5,7 +5,9 @@ import logging
 from os.path import basename, normpath
 
 from enocean.communicators import SerialCommunicator
-from enocean.protocol.packet import RadioPacket
+from enocean.protocol.constants import PACKET, RETURN_CODE
+from enocean.protocol.packet import RadioPacket, ResponsePacket
+import enocean.utils
 import serial
 
 from homeassistant.helpers.dispatcher import async_dispatcher_connect, dispatcher_send
@@ -33,12 +35,18 @@ class EnOceanDongle:
         self.hass = hass
         self.dispatcher_disconnect_handle = None
 
+    @property
+    def sender_id(self):
+        return self._communicator.base_id
+
     async def async_setup(self):
         """Finish the setup of the bridge and supported platforms."""
         self._communicator.start()
         self.dispatcher_disconnect_handle = async_dispatcher_connect(
             self.hass, SIGNAL_SEND_MESSAGE, self._send_message_callback
         )
+        # the following triggers a command to get the base id of the dongle
+        _ = self._communicator.base_id
 
     def unload(self):
         """Disconnect callbacks established at init time."""
@@ -60,6 +68,15 @@ class EnOceanDongle:
         if isinstance(packet, RadioPacket):
             _LOGGER.debug("Received radio packet: %s", packet)
             dispatcher_send(self.hass, SIGNAL_RECEIVE_MESSAGE, packet)
+        elif isinstance(packet, ResponsePacket):
+            if (
+                    packet.packet_type == PACKET.RESPONSE
+                    and packet.response == RETURN_CODE.OK
+                    and len(packet.response_data) == 4
+            ):
+                # Base ID is set from the response data.
+                self._communicator.base_id = packet.response_data
+                _LOGGER.debug(f"received dongle (sender) id: {enocean.utils.to_hex_string(self._communicator.base_id)}")
 
 
 def detect():
