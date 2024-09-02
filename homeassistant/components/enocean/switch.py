@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from enocean.utils import combine_hex
+from enocean.protocol.constants import PACKET, RORG
 import voluptuous as vol
 
 from homeassistant.components.switch import (
@@ -92,25 +93,29 @@ class EnOceanSwitch(EnOceanEntity, SwitchEntity):
 
     def turn_on(self, **kwargs: Any) -> None:
         """Turn on the switch."""
-        optional = [0x03]
-        optional.extend(self.dev_id)
-        optional.extend([0xFF, 0x00])
         self.send_command(
-            data=[0xD2, 0x01, self.channel & 0xFF, 0x64, 0x00, 0x00, 0x00, 0x00, 0x00],
-            optional=optional,
-            packet_type=0x01,
+            packet_type=PACKET.RADIO_ERP1,
+            rorg=RORG.VLD,
+            rorg_func=0x01,
+            rorg_type=0x0F,
+            command=0x1,
+            DV=0x00,  # Dim value. 0x00 = switch to new value
+            IO=self.channel,  # 0x1E = all supported channels
+            OV=0x64,  # Output value. 0x64 = ON (=100%)
         )
         self._attr_is_on = True
 
     def turn_off(self, **kwargs: Any) -> None:
         """Turn off the switch."""
-        optional = [0x03]
-        optional.extend(self.dev_id)
-        optional.extend([0xFF, 0x00])
         self.send_command(
-            data=[0xD2, 0x01, self.channel & 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
-            optional=optional,
-            packet_type=0x01,
+            packet_type=PACKET.RADIO_ERP1,
+            rorg=RORG.VLD,
+            rorg_func=0x01,
+            rorg_type=0x0F,
+            command=0x1,
+            DV=0x00,  # Dim value. 0x00 = switch to new value
+            IO=self.channel,  # 0x1E = all supported channels
+            OV=0x00,  # Output value. 0x00 = OFF
         )
         self._attr_is_on = False
 

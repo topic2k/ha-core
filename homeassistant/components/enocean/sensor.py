@@ -19,6 +19,7 @@ from homeassistant.const import (
     CONF_DEVICE_CLASS,
     CONF_ID,
     CONF_NAME,
+    LIGHT_LUX,
     PERCENTAGE,
     STATE_CLOSED,
     STATE_OPEN,
@@ -40,6 +41,8 @@ CONF_RANGE_TO = "range_to"
 DEFAULT_NAME = "EnOcean sensor"
 
 SENSOR_TYPE_HUMIDITY = "humidity"
+SENSOR_TYPE_ILLUMINANCE = "illuminance"
+SENSOR_TYPE_OCCUPANCY = "occupancy"
 SENSOR_TYPE_POWER = "powersensor"
 SENSOR_TYPE_TEMPERATURE = "temperature"
 SENSOR_TYPE_WINDOWHANDLE = "windowhandle"
@@ -68,6 +71,23 @@ SENSOR_DESC_HUMIDITY = EnOceanSensorEntityDescription(
     device_class=SensorDeviceClass.HUMIDITY,
     state_class=SensorStateClass.MEASUREMENT,
     unique_id=lambda dev_id: f"{combine_hex(dev_id)}-{SENSOR_TYPE_HUMIDITY}",
+)
+
+SENSOR_DESC_ILLUMINANCE = EnOceanSensorEntityDescription(
+    key=SENSOR_TYPE_ILLUMINANCE,
+    name="Illuminance",
+    native_unit_of_measurement=LIGHT_LUX,
+    device_class=SensorDeviceClass.ILLUMINANCE,
+    state_class=SensorStateClass.MEASUREMENT,
+    unique_id=lambda dev_id: f"{combine_hex(dev_id)}-{SENSOR_TYPE_ILLUMINANCE}",
+)
+
+SENSOR_DESC_OCCUPANCY = EnOceanSensorEntityDescription(
+    key=SENSOR_TYPE_OCCUPANCY,
+    name="Occupancy",
+    # device_class=SensorDeviceClass.OCCUPANCY,
+    # state_class=SensorStateClass.MEASUREMENT,
+    unique_id=lambda dev_id: f"{combine_hex(dev_id)}-{SENSOR_TYPE_OCCUPANCY}",
 )
 
 SENSOR_DESC_POWER = EnOceanSensorEntityDescription(
@@ -132,6 +152,12 @@ def setup_platform(
     elif sensor_type == SENSOR_TYPE_HUMIDITY:
         entities = [EnOceanHumiditySensor(dev_id, dev_name, SENSOR_DESC_HUMIDITY)]
 
+    elif sensor_type == SENSOR_TYPE_ILLUMINANCE:
+        entities = [EnOceanIlluminanceSensor(dev_id, dev_name, SENSOR_DESC_ILLUMINANCE)]
+
+    elif sensor_type == SENSOR_TYPE_OCCUPANCY:
+        entities = [EnOceanOccupancySensor(dev_id, dev_name, SENSOR_DESC_OCCUPANCY)]
+
     elif sensor_type == SENSOR_TYPE_POWER:
         entities = [EnOceanPowerSensor(dev_id, dev_name, SENSOR_DESC_POWER)]
 
@@ -168,6 +194,39 @@ class EnOceanSensor(EnOceanEntity, RestoreSensor):
 
     def value_changed(self, packet):
         """Update the internal state of the sensor."""
+
+
+class EnOceanIlluminanceSensor(EnOceanSensor):
+    """Representation of an EnOcean illumination sensor.
+
+    EEPs (EnOcean Equipment Profiles):
+    - A5-07-03 (Occupancy with Supply voltage monitor and 10-bit illumination measurement)
+    """
+
+    def value_changed(self, packet):
+        """Update the internal state of the sensor."""
+        if packet.rorg != 0xA5:
+            return
+        packet.parse_eep(0x07, 0x03)
+        self._attr_native_value = packet.parsed["ILL"]["value"]
+        self.schedule_update_ha_state()
+
+
+class EnOceanOccupancySensor(EnOceanSensor):
+    """Representation of an EnOcean occupancy sensor.
+
+    EEPs (EnOcean Equipment Profiles):
+    - A5-07-03 (Automated Meter Reading, Electricity)
+    """
+
+    def value_changed(self, packet):
+        """Update the internal state of the sensor."""
+        if packet.rorg != 0xA5:
+            return
+        packet.parse_eep(0x07, 0x03)
+        self._attr_native_value = packet.parsed["PIR"]["value"]
+        # self._attr_native_value = packet.parsed["PIR"]["raw_value"]
+        self.schedule_update_ha_state()
 
 
 class EnOceanPowerSensor(EnOceanSensor):
