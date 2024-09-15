@@ -16,6 +16,7 @@ class EnOceanEntity(Entity):
     def __init__(self, dev_id: list[int]) -> None:
         """Initialize the device."""
         self.dev_id = dev_id
+        self.dev_id_int = combine_hex(dev_id)
 
     async def async_added_to_hass(self):
         """Register callbacks."""

@@ -21,3 +21,6 @@ PLATFORMS = [
     Platform.SENSOR,
     Platform.SWITCH,
 ]
+
+CONF_CHANNEL = "channel"
+CONF_EEP = "eep"
