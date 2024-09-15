@@ -6,6 +6,7 @@ from typing import Any
 
 from enocean.utils import combine_hex
 from enocean.protocol.constants import PACKET, RORG
+from enocean.protocol.packet import RadioPacket
 import voluptuous as vol
 
 from homeassistant.components.switch import (
@@ -18,10 +19,9 @@ from homeassistant.helpers import config_validation as cv, entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
-from .const import DOMAIN, LOGGER
+from .const import CONF_CHANNEL, CONF_EEP, DOMAIN, LOGGER
 from .device import EnOceanEntity
 
-CONF_CHANNEL = "channel"
 DEFAULT_NAME = "EnOcean Switch"
 
 PLATFORM_SCHEMA = SWITCH_PLATFORM_SCHEMA.extend(
@@ -29,6 +29,7 @@ PLATFORM_SCHEMA = SWITCH_PLATFORM_SCHEMA.extend(
         vol.Required(CONF_ID): vol.All(cv.ensure_list, [vol.Coerce(int)]),
         vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
         vol.Optional(CONF_CHANNEL, default=0): cv.positive_int,
+        vol.Optional(CONF_EEP): vol.All(cv.ensure_list, [vol.Coerce(int)]),
     }
 )
 
@@ -119,11 +120,10 @@ class EnOceanSwitch(EnOceanEntity, SwitchEntity):
         )
         self._attr_is_on = False
 
-    def value_changed(self, packet):
+    def value_changed(self, packet: RadioPacket):
         """Update the internal state of the switch."""
-        if packet.data[0] == 0xA5:
-            # power meter telegram, turn on if > 10 watts
-            packet.parse_eep(0x12, 0x01)
+        if packet.rorg == RORG.BS4:
+            packet.parse_eep(rorg_func=0x12, rorg_type=0x01)
             if packet.parsed["DT"]["raw_value"] == 1:
                 raw_val = packet.parsed["MR"]["raw_value"]
                 divisor = packet.parsed["DIV"]["raw_value"]
@@ -131,9 +131,8 @@ class EnOceanSwitch(EnOceanEntity, SwitchEntity):
                 if watts > 1:
                     self._attr_is_on = True
                     self.schedule_update_ha_state()
-        elif packet.data[0] == 0xD2:
-            # actuator status telegram
-            packet.parse_eep(0x01, 0x01)
+        elif packet.rorg == RORG.VLD:
+            packet.parse_eep(rorg_func=0x01, rorg_type=0x01)
             if packet.parsed["CMD"]["raw_value"] == 4:
                 channel = packet.parsed["IO"]["raw_value"]
                 output = packet.parsed["OV"]["raw_value"]

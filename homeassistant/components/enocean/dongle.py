@@ -12,9 +12,8 @@ import serial
 
 from homeassistant.helpers.dispatcher import async_dispatcher_connect, dispatcher_send
 
-from .const import SIGNAL_RECEIVE_MESSAGE, SIGNAL_SEND_MESSAGE
+from .const import SIGNAL_RECEIVE_MESSAGE, SIGNAL_SEND_MESSAGE, LOGGER
 
-_LOGGER = logging.getLogger(__name__)
 
 
 class EnOceanDongle:
@@ -30,6 +29,7 @@ class EnOceanDongle:
         self._communicator = SerialCommunicator(
             port=serial_path, callback=self.callback
         )
+        self._communicator.logger.setLevel(LOGGER.getEffectiveLevel())
         self.serial_path = serial_path
         self.identifier = basename(normpath(serial_path))
         self.hass = hass
@@ -38,6 +38,10 @@ class EnOceanDongle:
     @property
     def sender_id(self):
         return self._communicator.base_id
+
+    @property
+    def sender_id_str(self):
+        return enocean.utils.to_hex_string(self._communicator.base_id)
 
     async def async_setup(self):
         """Finish the setup of the bridge and supported platforms."""
@@ -66,17 +70,16 @@ class EnOceanDongle:
         """
 
         if isinstance(packet, RadioPacket):
-            _LOGGER.debug("Received radio packet: %s", packet)
             dispatcher_send(self.hass, SIGNAL_RECEIVE_MESSAGE, packet)
         elif isinstance(packet, ResponsePacket):
             if (
-                    packet.packet_type == PACKET.RESPONSE
-                    and packet.response == RETURN_CODE.OK
-                    and len(packet.response_data) == 4
+                packet.packet_type == PACKET.RESPONSE
+                and packet.response == RETURN_CODE.OK
+                and len(packet.response_data) == 4
             ):
                 # Base ID is set from the response data.
                 self._communicator.base_id = packet.response_data
-                _LOGGER.debug(f"received dongle (sender) id: {enocean.utils.to_hex_string(self._communicator.base_id)}")
+                LOGGER.debug(f"controller id: {enocean.utils.to_hex_string(self._communicator.base_id)}")
 
 
 def detect():
@@ -100,6 +103,6 @@ def validate_path(path: str):
         # if it cannot connect
         SerialCommunicator(port=path)
     except serial.SerialException as exception:
-        _LOGGER.warning("Dongle path %s is invalid: %s", path, str(exception))
+        LOGGER.warning(f"Dongle path {path} is invalid: {str(exception)}")
         return False
     return True

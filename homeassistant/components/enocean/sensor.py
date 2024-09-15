@@ -31,6 +31,7 @@ import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
+from .const import CONF_EEP
 from .device import EnOceanEntity
 
 CONF_MAX_TEMP = "max_temp"
@@ -47,6 +48,18 @@ SENSOR_TYPE_POWER = "powersensor"
 SENSOR_TYPE_TEMPERATURE = "temperature"
 SENSOR_TYPE_WINDOWHANDLE = "windowhandle"
 
+PLATFORM_SCHEMA = SENSOR_PLATFORM_SCHEMA.extend(
+    {
+        vol.Required(CONF_ID): vol.All(cv.ensure_list, [vol.Coerce(int)]),
+        vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
+        vol.Optional(CONF_DEVICE_CLASS, default=SENSOR_TYPE_POWER): cv.string,
+        vol.Optional(CONF_MAX_TEMP, default=40): vol.Coerce(int),
+        vol.Optional(CONF_MIN_TEMP, default=0): vol.Coerce(int),
+        vol.Optional(CONF_RANGE_FROM, default=255): cv.positive_int,
+        vol.Optional(CONF_RANGE_TO, default=0): cv.positive_int,
+        vol.Optional(CONF_EEP): vol.All(cv.ensure_list, [vol.Coerce(int)]),
+    }
+)
 
 @dataclass(frozen=True, kw_only=True)
 class EnOceanSensorEntityDescription(SensorEntityDescription):
@@ -107,23 +120,10 @@ SENSOR_DESC_WINDOWHANDLE = EnOceanSensorEntityDescription(
 )
 
 
-PLATFORM_SCHEMA = SENSOR_PLATFORM_SCHEMA.extend(
-    {
-        vol.Required(CONF_ID): vol.All(cv.ensure_list, [vol.Coerce(int)]),
-        vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
-        vol.Optional(CONF_DEVICE_CLASS, default=SENSOR_TYPE_POWER): cv.string,
-        vol.Optional(CONF_MAX_TEMP, default=40): vol.Coerce(int),
-        vol.Optional(CONF_MIN_TEMP, default=0): vol.Coerce(int),
-        vol.Optional(CONF_RANGE_FROM, default=255): cv.positive_int,
-        vol.Optional(CONF_RANGE_TO, default=0): cv.positive_int,
-    }
-)
-
-
-def setup_platform(
+async def async_setup_platform(
     hass: HomeAssistant,
     config: ConfigType,
-    add_entities: AddEntitiesCallback,
+    async_add_entities: AddEntitiesCallback,
     discovery_info: DiscoveryInfoType | None = None,
 ) -> None:
     """Set up an EnOcean sensor device."""
@@ -164,7 +164,7 @@ def setup_platform(
     elif sensor_type == SENSOR_TYPE_WINDOWHANDLE:
         entities = [EnOceanWindowHandle(dev_id, dev_name, SENSOR_DESC_WINDOWHANDLE)]
 
-    add_entities(entities)
+    async_add_entities(entities)
 
 
 class EnOceanSensor(EnOceanEntity, RestoreSensor):
