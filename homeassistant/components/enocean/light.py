@@ -2,17 +2,13 @@
 
 from __future__ import annotations
 
-import math
 from typing import Any
 
-from enocean.utils import combine_hex
 import voluptuous as vol
-
-from enocean.protocol.constants import PACKET, RORG
 from enocean.protocol.packet import RadioPacket
-
+from enocean.utils import combine_hex
+from enocean4ha_bridge import EnOceanDongle, EO4HALight
 from homeassistant.components.light import (
-    ATTR_BRIGHTNESS,
     PLATFORM_SCHEMA as LIGHT_PLATFORM_SCHEMA,
     ColorMode,
     LightEntity,
@@ -23,7 +19,7 @@ import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
-from .const import CONF_CHANNEL, CONF_EEP
+from .const import CONF_CHANNEL, CONF_EEP, DATA_ENOCEAN, ENOCEAN_DONGLE
 from .device import EnOceanEntity
 
 DEFAULT_NAME = "EnOcean Light"
@@ -63,66 +59,34 @@ class EnOceanLight(EnOceanEntity, LightEntity):
     def __init__(self, dev_id: list[int], dev_name: str, channel: int) -> None:
         """Initialize the EnOcean light source."""
         super().__init__(dev_id)
-        self._channel = channel
+        self.channel = channel
         self._attr_unique_id = f"{combine_hex(dev_id)}-{channel}"
         self._attr_name = dev_name
+        self.eo_light = None
+
+    async def async_added_to_hass(self) -> None:
+        """Call when entity about to be added to hass."""
+        dongle: EnOceanDongle = self.hass.data[DATA_ENOCEAN][ENOCEAN_DONGLE]
+        self.eo_light = EO4HALight(controller=dongle, dev_id=self.dev_id, channel=self.channel)
+        await super().async_added_to_hass()
 
     def turn_on(self, **kwargs: Any) -> None:
         """Turn the light source on or sets a specific dimmer value."""
-        if (brightness := kwargs.get(ATTR_BRIGHTNESS)) is not None:
-            self._attr_brightness = brightness
-
-        bval = math.floor(self._attr_brightness / 256.0 * 100.0)
-        if bval == 0:
-            bval = 1
-
-        self.send_command(
-            packet_type=PACKET.RADIO_ERP1,
-            rorg=RORG.VLD,
-            rorg_func=0x01,
-            rorg_type=0x12,
-            command=0x01,
-            DV=0x00,
-            IO=self._channel,
-            OV=bval,
-        )
+        self.eo_light.turn_on(actual_brightness=self._attr_brightness, **kwargs)
         self._attr_is_on = True
 
     def turn_off(self, **kwargs: Any) -> None:
         """Turn the light source off."""
-        self.send_command(
-            packet_type=PACKET.RADIO_ERP1,
-            rorg=RORG.VLD,
-            rorg_func=0x01,
-            rorg_type=0x12,
-            command=0x01,
-            DV=0x00,
-            IO=self._channel,
-            OV=0x00,
-        )
+        self.eo_light.turn_off(**kwargs)
         self._attr_is_on = False
 
     def value_changed(self, packet: RadioPacket):
-        """Update the internal state of this device.
-
-        Dimmer devices like Eltako FUD61 send telegram in different RORGs.
-        We only care about the 4BS (0xA5).
-        """
-        brightness = self._attr_brightness
-        is_on = self._attr_is_on
-        if packet.rorg == RORG.BS4 and packet.data[1] == 0x02:
-            val = packet.data[2]
-            brightness = math.floor(val / 100.0 * 256.0)
-            is_on = bool(val != 0)
-        if packet.rorg == RORG.VLD:
-            packet.parse_eep(rorg_func=0x01, rorg_type=0x12)
-            if packet.parsed["CMD"]["raw_value"] == 4:
-                channel = packet.parsed["IO"]["raw_value"]
-                output = packet.parsed["OV"]["raw_value"]
-                if channel == self._channel:
-                    brightness = math.floor(output / 100.0 * 256.0)
-                    is_on = output > 0
-
+        """Update the internal state of this device."""
+        brightness, is_on = self.eo_light.parse_packet(
+            packet=packet,
+            brightness=self._attr_brightness,
+            is_on=self._attr_is_on
+        )
         if brightness != self._attr_brightness or is_on != self._attr_is_on:
             self._attr_brightness = brightness
             self._attr_is_on = is_on

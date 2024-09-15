@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from enocean.utils import combine_hex
-from enocean.protocol.constants import PACKET, RORG
 from enocean.protocol.packet import RadioPacket
+from enocean.utils import combine_hex
+from enocean4ha_bridge import EnOceanDongle, EO4HASwitch
 import voluptuous as vol
 
 from homeassistant.components.switch import (
@@ -19,7 +19,7 @@ from homeassistant.helpers import config_validation as cv, entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
-from .const import CONF_CHANNEL, CONF_EEP, DOMAIN, LOGGER
+from .const import CONF_CHANNEL, CONF_EEP, DOMAIN, LOGGER, DATA_ENOCEAN, ENOCEAN_DONGLE
 from .device import EnOceanEntity
 
 DEFAULT_NAME = "EnOcean Switch"
@@ -87,55 +87,30 @@ class EnOceanSwitch(EnOceanEntity, SwitchEntity):
     def __init__(self, dev_id: list[int], dev_name: str, channel: int) -> None:
         """Initialize the EnOcean switch device."""
         super().__init__(dev_id)
-        self._light = None
         self.channel = channel
         self._attr_unique_id = generate_unique_id(dev_id, channel)
         self._attr_name = dev_name
+        self.eo_switch = None
+
+    async def async_added_to_hass(self) -> None:
+        """Call when entity about to be added to hass."""
+        dongle: EnOceanDongle = self.hass.data[DATA_ENOCEAN][ENOCEAN_DONGLE]
+        self.eo_switch = EO4HASwitch(controller=dongle, dev_id=self.dev_id, channel=self.channel)
+        await super().async_added_to_hass()
 
     def turn_on(self, **kwargs: Any) -> None:
         """Turn on the switch."""
-        self.send_command(
-            packet_type=PACKET.RADIO_ERP1,
-            rorg=RORG.VLD,
-            rorg_func=0x01,
-            rorg_type=0x0F,
-            command=0x1,
-            DV=0x00,  # Dim value. 0x00 = switch to new value
-            IO=self.channel,  # 0x1E = all supported channels
-            OV=0x64,  # Output value. 0x64 = ON (=100%)
-        )
+        self.eo_switch.turn_on(**kwargs)
         self._attr_is_on = True
 
     def turn_off(self, **kwargs: Any) -> None:
         """Turn off the switch."""
-        self.send_command(
-            packet_type=PACKET.RADIO_ERP1,
-            rorg=RORG.VLD,
-            rorg_func=0x01,
-            rorg_type=0x0F,
-            command=0x1,
-            DV=0x00,  # Dim value. 0x00 = switch to new value
-            IO=self.channel,  # 0x1E = all supported channels
-            OV=0x00,  # Output value. 0x00 = OFF
-        )
+        self.eo_switch.turn_off(**kwargs)
         self._attr_is_on = False
 
     def value_changed(self, packet: RadioPacket):
         """Update the internal state of the switch."""
-        if packet.rorg == RORG.BS4:
-            packet.parse_eep(rorg_func=0x12, rorg_type=0x01)
-            if packet.parsed["DT"]["raw_value"] == 1:
-                raw_val = packet.parsed["MR"]["raw_value"]
-                divisor = packet.parsed["DIV"]["raw_value"]
-                watts = raw_val / (10**divisor)
-                if watts > 1:
-                    self._attr_is_on = True
-                    self.schedule_update_ha_state()
-        elif packet.rorg == RORG.VLD:
-            packet.parse_eep(rorg_func=0x01, rorg_type=0x01)
-            if packet.parsed["CMD"]["raw_value"] == 4:
-                channel = packet.parsed["IO"]["raw_value"]
-                output = packet.parsed["OV"]["raw_value"]
-                if channel == self.channel:
-                    self._attr_is_on = output > 0
-                    self.schedule_update_ha_state()
+        state = self.eo_switch.parse_packet(packet, self._attr_is_on)
+        if state != self._attr_is_on:
+            self._attr_is_on = state
+            self.schedule_update_ha_state()

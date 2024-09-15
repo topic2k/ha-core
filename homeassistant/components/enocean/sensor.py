@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from enocean.utils import combine_hex
+from enocean4ha_bridge import EnOceanDongle, EO4HASensor
 import voluptuous as vol
 
 from homeassistant.components.sensor import (
@@ -21,8 +22,6 @@ from homeassistant.const import (
     CONF_NAME,
     LIGHT_LUX,
     PERCENTAGE,
-    STATE_CLOSED,
-    STATE_OPEN,
     UnitOfPower,
     UnitOfTemperature,
 )
@@ -31,7 +30,7 @@ import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
-from .const import CONF_EEP
+from .const import CONF_EEP, DATA_ENOCEAN, ENOCEAN_DONGLE
 from .device import EnOceanEntity
 
 CONF_MAX_TEMP = "max_temp"
@@ -72,6 +71,7 @@ SENSOR_DESC_TEMPERATURE = EnOceanSensorEntityDescription(
     key=SENSOR_TYPE_TEMPERATURE,
     name="Temperature",
     native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+    suggested_display_precision=2,
     device_class=SensorDeviceClass.TEMPERATURE,
     state_class=SensorStateClass.MEASUREMENT,
     unique_id=lambda dev_id: f"{combine_hex(dev_id)}-{SENSOR_TYPE_TEMPERATURE}",
@@ -81,6 +81,7 @@ SENSOR_DESC_HUMIDITY = EnOceanSensorEntityDescription(
     key=SENSOR_TYPE_HUMIDITY,
     name="Humidity",
     native_unit_of_measurement=PERCENTAGE,
+    suggested_display_precision=2,
     device_class=SensorDeviceClass.HUMIDITY,
     state_class=SensorStateClass.MEASUREMENT,
     unique_id=lambda dev_id: f"{combine_hex(dev_id)}-{SENSOR_TYPE_HUMIDITY}",
@@ -90,6 +91,7 @@ SENSOR_DESC_ILLUMINANCE = EnOceanSensorEntityDescription(
     key=SENSOR_TYPE_ILLUMINANCE,
     name="Illuminance",
     native_unit_of_measurement=LIGHT_LUX,
+    suggested_display_precision=2,
     device_class=SensorDeviceClass.ILLUMINANCE,
     state_class=SensorStateClass.MEASUREMENT,
     unique_id=lambda dev_id: f"{combine_hex(dev_id)}-{SENSOR_TYPE_ILLUMINANCE}",
@@ -98,8 +100,6 @@ SENSOR_DESC_ILLUMINANCE = EnOceanSensorEntityDescription(
 SENSOR_DESC_OCCUPANCY = EnOceanSensorEntityDescription(
     key=SENSOR_TYPE_OCCUPANCY,
     name="Occupancy",
-    # device_class=SensorDeviceClass.OCCUPANCY,
-    # state_class=SensorStateClass.MEASUREMENT,
     unique_id=lambda dev_id: f"{combine_hex(dev_id)}-{SENSOR_TYPE_OCCUPANCY}",
 )
 
@@ -107,6 +107,7 @@ SENSOR_DESC_POWER = EnOceanSensorEntityDescription(
     key=SENSOR_TYPE_POWER,
     name="Power",
     native_unit_of_measurement=UnitOfPower.WATT,
+    suggested_display_precision=2,
     device_class=SensorDeviceClass.POWER,
     state_class=SensorStateClass.MEASUREMENT,
     unique_id=lambda dev_id: f"{combine_hex(dev_id)}-{SENSOR_TYPE_POWER}",
@@ -181,9 +182,12 @@ class EnOceanSensor(EnOceanEntity, RestoreSensor):
         self.entity_description = description
         self._attr_name = f"{description.name} {dev_name}"
         self._attr_unique_id = description.unique_id(dev_id)
+        self.eo_sensor = None
 
     async def async_added_to_hass(self) -> None:
         """Call when entity about to be added to hass."""
+        dongle: EnOceanDongle = self.hass.data[DATA_ENOCEAN][ENOCEAN_DONGLE]
+        self.eo_sensor = EO4HASensor(controller=dongle, dev_id=self.dev_id)
         # If not None, we got an initial value.
         await super().async_added_to_hass()
         if self._attr_native_value is not None:
@@ -194,78 +198,53 @@ class EnOceanSensor(EnOceanEntity, RestoreSensor):
 
     def value_changed(self, packet):
         """Update the internal state of the sensor."""
+        raise NotImplemented
 
 
 class EnOceanIlluminanceSensor(EnOceanSensor):
-    """Representation of an EnOcean illumination sensor.
-
-    EEPs (EnOcean Equipment Profiles):
-    - A5-07-03 (Occupancy with Supply voltage monitor and 10-bit illumination measurement)
-    """
+    """Representation of an EnOcean illumination sensor."""
 
     def value_changed(self, packet):
         """Update the internal state of the sensor."""
-        if packet.rorg != 0xA5:
+        try:
+            value = self.eo_sensor.parse_illuminance_sensor(packet)
+        except ValueError:
             return
-        packet.parse_eep(0x07, 0x03)
-        self._attr_native_value = packet.parsed["ILL"]["value"]
-        self.schedule_update_ha_state()
+        if value != self._attr_native_value:
+            self._attr_native_value = value
+            self.schedule_update_ha_state()
 
 
 class EnOceanOccupancySensor(EnOceanSensor):
-    """Representation of an EnOcean occupancy sensor.
-
-    EEPs (EnOcean Equipment Profiles):
-    - A5-07-03 (Automated Meter Reading, Electricity)
-    """
+    """Representation of an EnOcean occupancy sensor."""
 
     def value_changed(self, packet):
         """Update the internal state of the sensor."""
-        if packet.rorg != 0xA5:
+        try:
+            value = self.eo_sensor.parse_occupancy_sensor(packet)
+        except ValueError:
             return
-        packet.parse_eep(0x07, 0x03)
-        self._attr_native_value = packet.parsed["PIR"]["value"]
-        # self._attr_native_value = packet.parsed["PIR"]["raw_value"]
-        self.schedule_update_ha_state()
+        if value != self._attr_native_value:
+            self._attr_native_value = value
+            self.schedule_update_ha_state()
 
 
 class EnOceanPowerSensor(EnOceanSensor):
-    """Representation of an EnOcean power sensor.
-
-    EEPs (EnOcean Equipment Profiles):
-    - A5-12-01 (Automated Meter Reading, Electricity)
-    """
+    """Representation of an EnOcean power sensor."""
 
     def value_changed(self, packet):
         """Update the internal state of the sensor."""
-        if packet.rorg != 0xA5:
+        try:
+            value = self.eo_sensor.parse_power_sensor(packet)
+        except (ValueError, LookupError):
             return
-        packet.parse_eep(0x12, 0x01)
-        if packet.parsed["DT"]["raw_value"] == 1:
-            # this packet reports the current value
-            raw_val = packet.parsed["MR"]["raw_value"]
-            divisor = packet.parsed["DIV"]["raw_value"]
-            self._attr_native_value = raw_val / (10**divisor)
+        if value != self._attr_native_value:
+            self._attr_native_value = value
             self.schedule_update_ha_state()
 
 
 class EnOceanTemperatureSensor(EnOceanSensor):
-    """Representation of an EnOcean temperature sensor device.
-
-    EEPs (EnOcean Equipment Profiles):
-    - A5-02-01 to A5-02-1B All 8 Bit Temperature Sensors of A5-02
-    - A5-10-01 to A5-10-14 (Room Operating Panels)
-    - A5-04-01 (Temp. and Humidity Sensor, Range 0°C to +40°C and 0% to 100%)
-    - A5-04-02 (Temp. and Humidity Sensor, Range -20°C to +60°C and 0% to 100%)
-    - A5-10-10 (Temp. and Humidity Sensor and Set Point)
-    - A5-10-12 (Temp. and Humidity Sensor, Set Point and Occupancy Control)
-    - 10 Bit Temp. Sensors are not supported (A5-02-20, A5-02-30)
-
-    For the following EEPs the scales must be set to "0 to 250":
-    - A5-04-01
-    - A5-04-02
-    - A5-10-10 to A5-10-14
-    """
+    """Representation of an EnOcean temperature sensor device."""
 
     def __init__(
         self,
@@ -280,58 +259,53 @@ class EnOceanTemperatureSensor(EnOceanSensor):
     ) -> None:
         """Initialize the EnOcean temperature sensor device."""
         super().__init__(dev_id, dev_name, description)
-        self._scale_min = scale_min
-        self._scale_max = scale_max
+        self.scale_min = scale_min
+        self.scale_max = scale_max
         self.range_from = range_from
         self.range_to = range_to
 
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self.eo_sensor.scale_min = self.scale_min
+        self.eo_sensor.scale_max = self.scale_max
+        self.eo_sensor.range_from = self.range_from
+        self.eo_sensor.range_to = self.range_to
+
+
     def value_changed(self, packet):
         """Update the internal state of the sensor."""
-        if packet.data[0] != 0xA5:
+        try:
+            value = self.eo_sensor.parse_temperature_sensor(packet)
+        except (ValueError, LookupError):
             return
-        temp_scale = self._scale_max - self._scale_min
-        temp_range = self.range_to - self.range_from
-        raw_val = packet.data[3]
-        temperature = temp_scale / temp_range * (raw_val - self.range_from)
-        temperature += self._scale_min
-        self._attr_native_value = round(temperature, 1)
-        self.schedule_update_ha_state()
+        if value != self._attr_native_value:
+            self._attr_native_value = value
+            self.schedule_update_ha_state()
 
 
 class EnOceanHumiditySensor(EnOceanSensor):
-    """Representation of an EnOcean humidity sensor device.
-
-    EEPs (EnOcean Equipment Profiles):
-    - A5-04-01 (Temp. and Humidity Sensor, Range 0°C to +40°C and 0% to 100%)
-    - A5-04-02 (Temp. and Humidity Sensor, Range -20°C to +60°C and 0% to 100%)
-    - A5-10-10 to A5-10-14 (Room Operating Panels)
-    """
+    """Representation of an EnOcean humidity sensor device."""
 
     def value_changed(self, packet):
         """Update the internal state of the sensor."""
-        if packet.rorg != 0xA5:
+        try:
+            value = self.eo_sensor.parse_humidity_sensor(packet)
+        except (ValueError, LookupError):
             return
-        humidity = packet.data[2] * 100 / 250
-        self._attr_native_value = round(humidity, 1)
-        self.schedule_update_ha_state()
+        if value != self._attr_native_value:
+            self._attr_native_value = value
+            self.schedule_update_ha_state()
 
 
 class EnOceanWindowHandle(EnOceanSensor):
-    """Representation of an EnOcean window handle device.
-
-    EEPs (EnOcean Equipment Profiles):
-    - F6-10-00 (Mechanical handle / Hoppe AG)
-    """
+    """Representation of an EnOcean window handle device."""
 
     def value_changed(self, packet):
         """Update the internal state of the sensor."""
-        action = (packet.data[1] & 0x70) >> 4
-
-        if action == 0x07:
-            self._attr_native_value = STATE_CLOSED
-        if action in (0x04, 0x06):
-            self._attr_native_value = STATE_OPEN
-        if action == 0x05:
-            self._attr_native_value = "tilt"
-
-        self.schedule_update_ha_state()
+        try:
+            value = self.eo_sensor.parse_window_handle_sensor(packet)
+        except LookupError:
+            return
+        if value != self._attr_native_value:
+            self._attr_native_value = value
+            self.schedule_update_ha_state()
