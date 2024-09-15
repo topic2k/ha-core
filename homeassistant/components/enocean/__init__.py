@@ -1,7 +1,7 @@
 """Support for EnOcean devices."""
 
 import voluptuous as vol
-
+from enocean4ha_bridge import EnOceanDongle
 from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
 from homeassistant.const import CONF_DEVICE
 from homeassistant.core import HomeAssistant
@@ -9,7 +9,6 @@ import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 
 from .const import DATA_ENOCEAN, DOMAIN, ENOCEAN_DONGLE, LOGGER
-from .dongle import EnOceanDongle
 
 CONFIG_SCHEMA = vol.Schema(
     {DOMAIN: vol.Schema({vol.Required(CONF_DEVICE): cv.string})}, extra=vol.ALLOW_EXTRA
@@ -38,11 +37,10 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
     """Set up an EnOcean dongle for the given entry."""
-    enocean_data = hass.data.setdefault(DATA_ENOCEAN, {})
-    usb_dongle = EnOceanDongle(hass, config_entry.data[CONF_DEVICE])
+    hass.data.setdefault(DATA_ENOCEAN, {})
+    usb_dongle = EnOceanDongle(hass, config_entry.data[CONF_DEVICE], LOGGER.getEffectiveLevel())
     await usb_dongle.async_setup()
-    enocean_data[ENOCEAN_DONGLE] = usb_dongle
-
+    hass.data[DATA_ENOCEAN][ENOCEAN_DONGLE] = usb_dongle
     return True
 
 

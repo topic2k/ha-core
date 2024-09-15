@@ -5,6 +5,7 @@ from __future__ import annotations
 from enocean.utils import combine_hex
 import voluptuous as vol
 
+from enocean4ha_bridge import EnOceanDongle, EO4HABinarySensor
 from homeassistant.components.binary_sensor import (
     DEVICE_CLASSES_SCHEMA,
     PLATFORM_SCHEMA as BINARY_SENSOR_PLATFORM_SCHEMA,
@@ -16,7 +17,7 @@ from homeassistant.core import HomeAssistant
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
-from .const import CONF_EEP
+from .const import CONF_EEP, DATA_ENOCEAN, ENOCEAN_DONGLE
 
 from .entity import EnOceanEntity
 
@@ -69,48 +70,25 @@ class EnOceanBinarySensor(EnOceanEntity, BinarySensorEntity):
         self.onoff = -1
         self._attr_unique_id = f"{combine_hex(dev_id)}-{device_class}"
         self._attr_name = dev_name
+        self.eo_sensor = None
+
+    async def async_added_to_hass(self) -> None:
+        """Call when entity about to be added to hass."""
+        dongle: EnOceanDongle = self.hass.data[DATA_ENOCEAN][ENOCEAN_DONGLE]
+        self.eo_sensor = EO4HABinarySensor(controller=dongle, dev_id=self.dev_id)
+        await super().async_added_to_hass()
 
     def value_changed(self, packet):
-        """Fire an event with the data that have changed.
+        """Fire an event with the data that have changed."""
+        pushed, self.which, self.onoff = self.eo_sensor.parse_packet(
+            packet=packet,
+            actual_which=self.which,
+            actual_onoff=self.onoff
+        )
+        if pushed != self._attr_state:
+            self._attr_state = pushed
+            self.schedule_update_ha_state()
 
-        This method is called when there is an incoming packet associated
-        with this platform.
-
-        Example packet data:
-        - 2nd button pressed
-            ['0xf6', '0x10', '0x00', '0x2d', '0xcf', '0x45', '0x30']
-        - button released
-            ['0xf6', '0x00', '0x00', '0x2d', '0xcf', '0x45', '0x20']
-        """
-        # Energy Bow
-        pushed = None
-
-        if packet.data[6] == 0x30:
-            pushed = 1
-        elif packet.data[6] == 0x20:
-            pushed = 0
-
-        self.schedule_update_ha_state()
-
-        action = packet.data[1]
-        if action == 0x70:
-            self.which = 0
-            self.onoff = 0
-        elif action == 0x50:
-            self.which = 0
-            self.onoff = 1
-        elif action == 0x30:
-            self.which = 1
-            self.onoff = 0
-        elif action == 0x10:
-            self.which = 1
-            self.onoff = 1
-        elif action == 0x37:
-            self.which = 10
-            self.onoff = 0
-        elif action == 0x15:
-            self.which = 10
-            self.onoff = 1
         self.hass.bus.fire(
             EVENT_BUTTON_PRESSED,
             {
