@@ -6,7 +6,7 @@ from typing import Any
 
 from enocean.protocol.packet import RadioPacket
 from enocean.utils import combine_hex
-from enocean4ha_bridge import EnOceanDongle, EO4HASwitch
+from enocean4ha_bridge import EnOceanGateway, EO4HASwitch
 import voluptuous as vol
 
 from homeassistant.components.switch import (
@@ -27,9 +27,9 @@ DEFAULT_NAME = "EnOcean Switch"
 PLATFORM_SCHEMA = SWITCH_PLATFORM_SCHEMA.extend(
     {
         vol.Required(CONF_ID): vol.All(cv.ensure_list, [vol.Coerce(int)]),
+        vol.Required(CONF_EEP): vol.All(cv.ensure_list, [vol.Coerce(int)]),
         vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
         vol.Optional(CONF_CHANNEL, default=0): cv.positive_int,
-        vol.Optional(CONF_EEP): vol.All(cv.ensure_list, [vol.Coerce(int)]),
     }
 )
 
@@ -74,9 +74,10 @@ async def async_setup_platform(
     channel: int = config[CONF_CHANNEL]
     dev_id: list[int] = config[CONF_ID]
     dev_name: str = config[CONF_NAME]
+    eep: list[int] = config[CONF_EEP]
 
     _migrate_to_new_unique_id(hass, dev_id, channel)
-    async_add_entities([EnOceanSwitch(dev_id, dev_name, channel)])
+    async_add_entities([EnOceanSwitch(dev_id, eep, dev_name, channel)])
 
 
 class EnOceanSwitch(EnOceanEntity, SwitchEntity):
@@ -84,18 +85,25 @@ class EnOceanSwitch(EnOceanEntity, SwitchEntity):
 
     _attr_is_on = False
 
-    def __init__(self, dev_id: list[int], dev_name: str, channel: int) -> None:
+    def __init__(self, dev_id: list[int], eep: list[int], dev_name: str, channel: int) -> None:
         """Initialize the EnOcean switch device."""
-        super().__init__(dev_id)
+        super().__init__(dev_id, eep)
         self.channel = channel
         self._attr_unique_id = generate_unique_id(dev_id, channel)
         self._attr_name = dev_name
+        self._attr_extra_state_attributes = {}
         self.eo_switch = None
 
     async def async_added_to_hass(self) -> None:
         """Call when entity about to be added to hass."""
-        dongle: EnOceanDongle = self.hass.data[DATA_ENOCEAN][ENOCEAN_DONGLE]
-        self.eo_switch = EO4HASwitch(controller=dongle, dev_id=self.dev_id, channel=self.channel)
+        dongle: EnOceanGateway = self.hass.data[DATA_ENOCEAN][ENOCEAN_DONGLE]
+        self.eo_switch = EO4HASwitch(
+            gateway=dongle,
+            dev_id=self.dev_id,
+            channel=self.channel,
+            eep=self.eep,
+            loglevel=LOGGER.getEffectiveLevel()
+        )
         await super().async_added_to_hass()
 
     def turn_on(self, **kwargs: Any) -> None:
@@ -110,7 +118,8 @@ class EnOceanSwitch(EnOceanEntity, SwitchEntity):
 
     def value_changed(self, packet: RadioPacket):
         """Update the internal state of the switch."""
-        state = self.eo_switch.parse_packet(packet, self._attr_is_on)
+        state, extra_attr = self.eo_switch.parse_packet(packet, self._attr_is_on)
         if state != self._attr_is_on:
             self._attr_is_on = state
+            self._attr_extra_state_attributes = extra_attr
             self.schedule_update_ha_state()

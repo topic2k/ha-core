@@ -7,7 +7,7 @@ from typing import Any
 import voluptuous as vol
 from enocean.protocol.packet import RadioPacket
 from enocean.utils import combine_hex
-from enocean4ha_bridge import EnOceanDongle, EO4HALight
+from enocean4ha_bridge import EnOceanGateway, EO4HALight, EO4HAError
 from homeassistant.components.light import (
     PLATFORM_SCHEMA as LIGHT_PLATFORM_SCHEMA,
     ColorMode,
@@ -19,7 +19,7 @@ import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
-from .const import CONF_CHANNEL, CONF_EEP, DATA_ENOCEAN, ENOCEAN_DONGLE
+from .const import CONF_CHANNEL, CONF_EEP, DATA_ENOCEAN, ENOCEAN_DONGLE, LOGGER
 from .device import EnOceanEntity
 
 DEFAULT_NAME = "EnOcean Light"
@@ -27,9 +27,9 @@ DEFAULT_NAME = "EnOcean Light"
 PLATFORM_SCHEMA = LIGHT_PLATFORM_SCHEMA.extend(
     {
         vol.Optional(CONF_ID, default=[]): vol.All(cv.ensure_list, [vol.Coerce(int)]),
+        vol.Required(CONF_EEP): vol.All(cv.ensure_list, [vol.Coerce(int)]),
         vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
         vol.Optional(CONF_CHANNEL, default=0): cv.positive_int,
-        vol.Optional(CONF_EEP): vol.All(cv.ensure_list, [vol.Coerce(int)]),
     }
 )
 
@@ -43,9 +43,10 @@ async def async_setup_platform(
     """Set up the EnOcean light platform."""
     dev_name: str = config[CONF_NAME]
     dev_id: list[int] = config[CONF_ID]
+    eep: list[int] = config[CONF_EEP]
     channel: int = config[CONF_CHANNEL]
 
-    async_add_entities([EnOceanLight(dev_id, dev_name, channel)])
+    async_add_entities([EnOceanLight(dev_id, eep, dev_name, channel)])
 
 
 class EnOceanLight(EnOceanEntity, LightEntity):
@@ -56,9 +57,9 @@ class EnOceanLight(EnOceanEntity, LightEntity):
     _attr_brightness = 50
     _attr_is_on = False
 
-    def __init__(self, dev_id: list[int], dev_name: str, channel: int) -> None:
+    def __init__(self, dev_id: list[int], eep: list[int], dev_name: str, channel: int) -> None:
         """Initialize the EnOcean light source."""
-        super().__init__(dev_id)
+        super().__init__(dev_id, eep)
         self.channel = channel
         self._attr_unique_id = f"{combine_hex(dev_id)}-{channel}"
         self._attr_name = dev_name
@@ -66,8 +67,14 @@ class EnOceanLight(EnOceanEntity, LightEntity):
 
     async def async_added_to_hass(self) -> None:
         """Call when entity about to be added to hass."""
-        dongle: EnOceanDongle = self.hass.data[DATA_ENOCEAN][ENOCEAN_DONGLE]
-        self.eo_light = EO4HALight(controller=dongle, dev_id=self.dev_id, channel=self.channel)
+        dongle: EnOceanGateway = self.hass.data[DATA_ENOCEAN][ENOCEAN_DONGLE]
+        self.eo_light = EO4HALight(
+            gateway=dongle,
+            dev_id=self.dev_id,
+            channel=self.channel,
+            eep=self.eep,
+            loglevel=LOGGER.getEffectiveLevel()
+        )
         await super().async_added_to_hass()
 
     def turn_on(self, **kwargs: Any) -> None:
@@ -82,12 +89,12 @@ class EnOceanLight(EnOceanEntity, LightEntity):
 
     def value_changed(self, packet: RadioPacket):
         """Update the internal state of this device."""
-        brightness, is_on = self.eo_light.parse_packet(
-            packet=packet,
-            brightness=self._attr_brightness,
-            is_on=self._attr_is_on
-        )
-        if brightness != self._attr_brightness or is_on != self._attr_is_on:
-            self._attr_brightness = brightness
-            self._attr_is_on = is_on
-            self.schedule_update_ha_state()
+        try:
+            brightness, is_on = self.eo_light.parse_packet(packet)
+        except EO4HAError:
+            pass
+        else:
+            if brightness != self._attr_brightness or is_on != self._attr_is_on:
+                self._attr_brightness = brightness
+                self._attr_is_on = is_on
+                self.schedule_update_ha_state()
