@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from enocean.utils import combine_hex
-from enocean4ha_bridge import EnOceanDongle, EO4HASensor
+from enocean4ha_bridge import EnOceanGateway, EO4HASensor, EO4HAHumiditySensor, EO4HAIlluminanceSensor, EO4HAOccupancySensor, EO4HAPowerSensor, EO4HATemperatureSensor, EO4HAWindowHandleSensor
 import voluptuous as vol
 
 from homeassistant.components.sensor import (
@@ -30,7 +31,7 @@ import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
-from .const import CONF_EEP, DATA_ENOCEAN, ENOCEAN_DONGLE
+from .const import CONF_EEP, DATA_ENOCEAN, ENOCEAN_DONGLE, LOGGER
 from .device import EnOceanEntity
 
 CONF_MAX_TEMP = "max_temp"
@@ -50,13 +51,9 @@ SENSOR_TYPE_WINDOWHANDLE = "windowhandle"
 PLATFORM_SCHEMA = SENSOR_PLATFORM_SCHEMA.extend(
     {
         vol.Required(CONF_ID): vol.All(cv.ensure_list, [vol.Coerce(int)]),
+        vol.Required(CONF_EEP): vol.All(cv.ensure_list, [vol.Coerce(int)]),
         vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
         vol.Optional(CONF_DEVICE_CLASS, default=SENSOR_TYPE_POWER): cv.string,
-        vol.Optional(CONF_MAX_TEMP, default=40): vol.Coerce(int),
-        vol.Optional(CONF_MIN_TEMP, default=0): vol.Coerce(int),
-        vol.Optional(CONF_RANGE_FROM, default=255): cv.positive_int,
-        vol.Optional(CONF_RANGE_TO, default=0): cv.positive_int,
-        vol.Optional(CONF_EEP): vol.All(cv.ensure_list, [vol.Coerce(int)]),
     }
 )
 
@@ -130,40 +127,27 @@ async def async_setup_platform(
     """Set up an EnOcean sensor device."""
     dev_id: list[int] = config[CONF_ID]
     dev_name: str = config[CONF_NAME]
+    eep: list[int] = config[CONF_EEP]
     sensor_type: str = config[CONF_DEVICE_CLASS]
 
     entities: list[EnOceanSensor] = []
-    if sensor_type == SENSOR_TYPE_TEMPERATURE:
-        temp_min: int = config[CONF_MIN_TEMP]
-        temp_max: int = config[CONF_MAX_TEMP]
-        range_from: int = config[CONF_RANGE_FROM]
-        range_to: int = config[CONF_RANGE_TO]
-        entities = [
-            EnOceanTemperatureSensor(
-                dev_id,
-                dev_name,
-                SENSOR_DESC_TEMPERATURE,
-                scale_min=temp_min,
-                scale_max=temp_max,
-                range_from=range_from,
-                range_to=range_to,
-            )
-        ]
-
-    elif sensor_type == SENSOR_TYPE_HUMIDITY:
-        entities = [EnOceanHumiditySensor(dev_id, dev_name, SENSOR_DESC_HUMIDITY)]
+    if sensor_type == SENSOR_TYPE_HUMIDITY:
+        entities = [EnOceanHumiditySensor(dev_id, eep, dev_name, SENSOR_DESC_HUMIDITY)]
 
     elif sensor_type == SENSOR_TYPE_ILLUMINANCE:
-        entities = [EnOceanIlluminanceSensor(dev_id, dev_name, SENSOR_DESC_ILLUMINANCE)]
+        entities = [EnOceanIlluminanceSensor(dev_id, eep, dev_name, SENSOR_DESC_ILLUMINANCE)]
 
     elif sensor_type == SENSOR_TYPE_OCCUPANCY:
-        entities = [EnOceanOccupancySensor(dev_id, dev_name, SENSOR_DESC_OCCUPANCY)]
+        entities = [EnOceanOccupancySensor(dev_id, eep, dev_name, SENSOR_DESC_OCCUPANCY)]
 
     elif sensor_type == SENSOR_TYPE_POWER:
-        entities = [EnOceanPowerSensor(dev_id, dev_name, SENSOR_DESC_POWER)]
+        entities = [EnOceanPowerSensor(dev_id, eep, dev_name, SENSOR_DESC_POWER)]
+
+    elif sensor_type == SENSOR_TYPE_TEMPERATURE:
+        entities = [EnOceanTemperatureSensor(dev_id, eep, dev_name, SENSOR_DESC_TEMPERATURE)]
 
     elif sensor_type == SENSOR_TYPE_WINDOWHANDLE:
-        entities = [EnOceanWindowHandle(dev_id, dev_name, SENSOR_DESC_WINDOWHANDLE)]
+        entities = [EnOceanWindowHandle(dev_id, eep, dev_name, SENSOR_DESC_WINDOWHANDLE)]
 
     async_add_entities(entities)
 
@@ -174,11 +158,12 @@ class EnOceanSensor(EnOceanEntity, RestoreSensor):
     def __init__(
         self,
         dev_id: list[int],
+        eep: list[int],
         dev_name: str,
         description: EnOceanSensorEntityDescription,
     ) -> None:
         """Initialize the EnOcean sensor device."""
-        super().__init__(dev_id)
+        super().__init__(dev_id, eep)
         self.entity_description = description
         self._attr_name = f"{description.name} {dev_name}"
         self._attr_unique_id = description.unique_id(dev_id)
@@ -186,23 +171,84 @@ class EnOceanSensor(EnOceanEntity, RestoreSensor):
 
     async def async_added_to_hass(self) -> None:
         """Call when entity about to be added to hass."""
-        dongle: EnOceanDongle = self.hass.data[DATA_ENOCEAN][ENOCEAN_DONGLE]
-        self.eo_sensor = EO4HASensor(controller=dongle, dev_id=self.dev_id)
-        # If not None, we got an initial value.
+        await self.add_eo4ha_bridge()
         await super().async_added_to_hass()
+        await self.bridge_added_to_sensor()
+
+        # If not None, we got an initial value.
         if self._attr_native_value is not None:
             return
-
         if (sensor_data := await self.async_get_last_sensor_data()) is not None:
             self._attr_native_value = sensor_data.native_value
+
+    async def add_eo4ha_bridge(self):
+        dongle: EnOceanGateway = self.hass.data[DATA_ENOCEAN][ENOCEAN_DONGLE]
+        self.eo_sensor = EO4HASensor(
+            gateway=dongle,
+            dev_id=self.dev_id,
+            eep=self.eep,
+            loglevel=LOGGER.getEffectiveLevel()
+        )
+
+    async def bridge_added_to_sensor(self):
+        if hasattr(self.eo_sensor, 'range_min'):
+            if self.eo_sensor.range_min:
+                extra_attributes: dict[str, Any] = self.extra_state_attributes
+                if extra_attributes:
+                    extra_attributes.update({
+                        'range_min': self.eo_sensor.range_min,
+                        'range_max': self.eo_sensor.range_max,
+                        'scale_min': self.eo_sensor.scale_min,
+                        'scale_max': self.eo_sensor.scale_max
+                    })
+                else:
+                    extra_attributes = {
+                        'range_min': self.eo_sensor.range_min,
+                        'range_max': self.eo_sensor.range_max,
+                        'scale_min': self.eo_sensor.scale_min,
+                        'scale_max': self.eo_sensor.scale_max
+                    }
+                self._attr_extra_state_attributes = extra_attributes
 
     def value_changed(self, packet):
         """Update the internal state of the sensor."""
         raise NotImplemented
 
 
+class EnOceanHumiditySensor(EnOceanSensor):
+    """Representation of an EnOcean humidity sensor device."""
+
+    async def add_eo4ha_bridge(self) -> None:
+        dongle: EnOceanGateway = self.hass.data[DATA_ENOCEAN][ENOCEAN_DONGLE]
+        self.eo_sensor = EO4HAHumiditySensor(
+            gateway=dongle,
+            dev_id=self.dev_id,
+            eep=self.eep,
+            loglevel=LOGGER.getEffectiveLevel()
+        )
+
+    def value_changed(self, packet):
+        """Update the internal state of the sensor."""
+        try:
+            value = self.eo_sensor.parse_humidity_sensor(packet)
+        except (ValueError, LookupError):
+            return
+        if value != self._attr_native_value:
+            self._attr_native_value = value
+            self.schedule_update_ha_state()
+
+
 class EnOceanIlluminanceSensor(EnOceanSensor):
     """Representation of an EnOcean illumination sensor."""
+
+    async def add_eo4ha_bridge(self) -> None:
+        dongle: EnOceanGateway = self.hass.data[DATA_ENOCEAN][ENOCEAN_DONGLE]
+        self.eo_sensor = EO4HAIlluminanceSensor(
+            gateway=dongle,
+            dev_id=self.dev_id,
+            eep=self.eep,
+            loglevel=LOGGER.getEffectiveLevel()
+        )
 
     def value_changed(self, packet):
         """Update the internal state of the sensor."""
@@ -218,19 +264,43 @@ class EnOceanIlluminanceSensor(EnOceanSensor):
 class EnOceanOccupancySensor(EnOceanSensor):
     """Representation of an EnOcean occupancy sensor."""
 
+    async def add_eo4ha_bridge(self) -> None:
+        dongle: EnOceanGateway = self.hass.data[DATA_ENOCEAN][ENOCEAN_DONGLE]
+        self.eo_sensor = EO4HAOccupancySensor(
+            gateway=dongle,
+            dev_id=self.dev_id,
+            eep=self.eep,
+            loglevel=LOGGER.getEffectiveLevel()
+        )
+
     def value_changed(self, packet):
         """Update the internal state of the sensor."""
-        try:
-            value = self.eo_sensor.parse_occupancy_sensor(packet)
-        except ValueError:
-            return
+        # try:
+        value, new_extra_attr = self.eo_sensor.parse_occupancy_sensor(packet)
+        # except ValueError:
+        #     return
         if value != self._attr_native_value:
             self._attr_native_value = value
+            extra_attributes: dict[str, Any] = self.extra_state_attributes
+            if extra_attributes:
+                extra_attributes.update(new_extra_attr)
+            else:
+                extra_attributes = new_extra_attr
+            self._attr_extra_state_attributes = extra_attributes
             self.schedule_update_ha_state()
 
 
 class EnOceanPowerSensor(EnOceanSensor):
     """Representation of an EnOcean power sensor."""
+
+    async def add_eo4ha_bridge(self) -> None:
+        dongle: EnOceanGateway = self.hass.data[DATA_ENOCEAN][ENOCEAN_DONGLE]
+        self.eo_sensor = EO4HAPowerSensor(
+            gateway=dongle,
+            dev_id=self.dev_id,
+            eep=self.eep,
+            loglevel=LOGGER.getEffectiveLevel()
+        )
 
     def value_changed(self, packet):
         """Update the internal state of the sensor."""
@@ -246,31 +316,14 @@ class EnOceanPowerSensor(EnOceanSensor):
 class EnOceanTemperatureSensor(EnOceanSensor):
     """Representation of an EnOcean temperature sensor device."""
 
-    def __init__(
-        self,
-        dev_id: list[int],
-        dev_name: str,
-        description: EnOceanSensorEntityDescription,
-        *,
-        scale_min: int,
-        scale_max: int,
-        range_from: int,
-        range_to: int,
-    ) -> None:
-        """Initialize the EnOcean temperature sensor device."""
-        super().__init__(dev_id, dev_name, description)
-        self.scale_min = scale_min
-        self.scale_max = scale_max
-        self.range_from = range_from
-        self.range_to = range_to
-
-    async def async_added_to_hass(self) -> None:
-        await super().async_added_to_hass()
-        self.eo_sensor.scale_min = self.scale_min
-        self.eo_sensor.scale_max = self.scale_max
-        self.eo_sensor.range_from = self.range_from
-        self.eo_sensor.range_to = self.range_to
-
+    async def add_eo4ha_bridge(self) -> None:
+        dongle: EnOceanGateway = self.hass.data[DATA_ENOCEAN][ENOCEAN_DONGLE]
+        self.eo_sensor = EO4HATemperatureSensor(
+            gateway=dongle,
+            dev_id=self.dev_id,
+            eep=self.eep,
+            loglevel=LOGGER.getEffectiveLevel()
+        )
 
     def value_changed(self, packet):
         """Update the internal state of the sensor."""
@@ -283,22 +336,17 @@ class EnOceanTemperatureSensor(EnOceanSensor):
             self.schedule_update_ha_state()
 
 
-class EnOceanHumiditySensor(EnOceanSensor):
-    """Representation of an EnOcean humidity sensor device."""
-
-    def value_changed(self, packet):
-        """Update the internal state of the sensor."""
-        try:
-            value = self.eo_sensor.parse_humidity_sensor(packet)
-        except (ValueError, LookupError):
-            return
-        if value != self._attr_native_value:
-            self._attr_native_value = value
-            self.schedule_update_ha_state()
-
-
 class EnOceanWindowHandle(EnOceanSensor):
     """Representation of an EnOcean window handle device."""
+
+    async def add_eo4ha_bridge(self) -> None:
+        dongle: EnOceanGateway = self.hass.data[DATA_ENOCEAN][ENOCEAN_DONGLE]
+        self.eo_sensor = EO4HAWindowHandleSensor(
+            gateway=dongle,
+            dev_id=self.dev_id,
+            eep=self.eep,
+            loglevel=LOGGER.getEffectiveLevel()
+        )
 
     def value_changed(self, packet):
         """Update the internal state of the sensor."""

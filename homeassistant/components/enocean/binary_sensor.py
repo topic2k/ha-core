@@ -5,7 +5,7 @@ from __future__ import annotations
 from enocean.utils import combine_hex
 import voluptuous as vol
 
-from enocean4ha_bridge import EnOceanDongle, EO4HABinarySensor
+from enocean4ha_bridge import EnOceanGateway, EO4HABinarySensor
 from homeassistant.components.binary_sensor import (
     DEVICE_CLASSES_SCHEMA,
     PLATFORM_SCHEMA as BINARY_SENSOR_PLATFORM_SCHEMA,
@@ -28,9 +28,9 @@ EVENT_BUTTON_PRESSED = "button_pressed"
 PLATFORM_SCHEMA = BINARY_SENSOR_PLATFORM_SCHEMA.extend(
     {
         vol.Required(CONF_ID): vol.All(cv.ensure_list, [vol.Coerce(int)]),
+        vol.Required(CONF_EEP): vol.All(cv.ensure_list, [vol.Coerce(int)]),
         vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
         vol.Optional(CONF_DEVICE_CLASS): DEVICE_CLASSES_SCHEMA,
-        vol.Optional(CONF_EEP): vol.All(cv.ensure_list, [vol.Coerce(int)]),
     }
 )
 
@@ -45,8 +45,9 @@ def setup_platform(
     dev_id: list[int] = config[CONF_ID]
     dev_name: str = config[CONF_NAME]
     device_class: BinarySensorDeviceClass | None = config.get(CONF_DEVICE_CLASS)
+    eep: list[int] = config[CONF_EEP]
 
-    add_entities([EnOceanBinarySensor(dev_id, dev_name, device_class)])
+    add_entities([EnOceanBinarySensor(dev_id, eep, dev_name, device_class)])
 
 
 class EnOceanBinarySensor(EnOceanEntity, BinarySensorEntity):
@@ -60,11 +61,12 @@ class EnOceanBinarySensor(EnOceanEntity, BinarySensorEntity):
     def __init__(
         self,
         dev_id: list[int],
+        eep: list[int],
         dev_name: str,
         device_class: BinarySensorDeviceClass | None,
     ) -> None:
         """Initialize the EnOcean binary sensor."""
-        super().__init__(dev_id)
+        super().__init__(dev_id, eep)
         self._attr_device_class = device_class
         self.which = -1
         self.onoff = -1
@@ -74,8 +76,8 @@ class EnOceanBinarySensor(EnOceanEntity, BinarySensorEntity):
 
     async def async_added_to_hass(self) -> None:
         """Call when entity about to be added to hass."""
-        dongle: EnOceanDongle = self.hass.data[DATA_ENOCEAN][ENOCEAN_DONGLE]
-        self.eo_sensor = EO4HABinarySensor(controller=dongle, dev_id=self.dev_id)
+        dongle: EnOceanGateway = self.hass.data[DATA_ENOCEAN][ENOCEAN_DONGLE]
+        self.eo_sensor = EO4HABinarySensor(gateway=dongle, dev_id=self.dev_id, eep=self.eep)
         await super().async_added_to_hass()
 
     def value_changed(self, packet):
