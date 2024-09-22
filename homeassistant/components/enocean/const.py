@@ -24,3 +24,4 @@ PLATFORMS = [
 
 CONF_CHANNEL = "channel"
 CONF_EEP = "eep"
+CONF_DIMMABLE = "dimmable"
