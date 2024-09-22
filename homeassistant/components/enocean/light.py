@@ -54,7 +54,6 @@ async def async_setup_platform(
 class EnOceanLight(EnOceanEntity, LightEntity):
     """Representation of an EnOcean light source."""
 
-
     def __init__(self, dev_id: list[int], eep: list[int], dev_name: str, channel: int, dimmable: bool) -> None:
         """Initialize the EnOcean light source."""
         super().__init__(dev_id, eep)
