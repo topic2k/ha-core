@@ -30,6 +30,7 @@ PLATFORM_SCHEMA = LIGHT_PLATFORM_SCHEMA.extend(
         vol.Required(CONF_EEP): vol.All(cv.ensure_list, [vol.Coerce(int)]),
         vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
         vol.Optional(CONF_CHANNEL, default=0): cv.positive_int,
+        vol.Optional(CONF_DIMMABLE, default=True): cv.boolean
     }
 )
 
@@ -45,25 +46,30 @@ async def async_setup_platform(
     dev_id: list[int] = config[CONF_ID]
     eep: list[int] = config[CONF_EEP]
     channel: int = config[CONF_CHANNEL]
+    dimmable: bool = config[CONF_DIMMABLE]
 
-    async_add_entities([EnOceanLight(dev_id, eep, dev_name, channel)])
+    async_add_entities([EnOceanLight(dev_id, eep, dev_name, channel, dimmable)])
 
 
 class EnOceanLight(EnOceanEntity, LightEntity):
     """Representation of an EnOcean light source."""
 
-    _attr_color_mode = ColorMode.BRIGHTNESS
-    _attr_supported_color_modes = {ColorMode.BRIGHTNESS}
-    _attr_brightness = 50
-    _attr_is_on = False
 
-    def __init__(self, dev_id: list[int], eep: list[int], dev_name: str, channel: int) -> None:
+    def __init__(self, dev_id: list[int], eep: list[int], dev_name: str, channel: int, dimmable: bool) -> None:
         """Initialize the EnOcean light source."""
         super().__init__(dev_id, eep)
         self.channel = channel
         self._attr_unique_id = f"{combine_hex(dev_id)}-{channel}"
         self._attr_name = dev_name
         self.eo_light = None
+        if dimmable:
+            self._attr_color_mode = ColorMode.BRIGHTNESS
+            self._attr_supported_color_modes = {ColorMode.BRIGHTNESS}
+            self._attr_brightness = 50
+        else:
+            self._attr_color_mode = ColorMode.ONOFF
+            self._attr_supported_color_modes = {ColorMode.ONOFF}
+        self._attr_is_on = False
 
     async def async_added_to_hass(self) -> None:
         """Call when entity about to be added to hass."""
