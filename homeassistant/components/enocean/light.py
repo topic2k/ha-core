@@ -19,7 +19,7 @@ import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
-from .const import CONF_CHANNEL, CONF_EEP, DATA_ENOCEAN, ENOCEAN_DONGLE, LOGGER
+from .const import CONF_CHANNEL, CONF_EEP, DATA_ENOCEAN, CONF_DIMMABLE, ENOCEAN_DONGLE, LOGGER
 from .device import EnOceanEntity
 
 DEFAULT_NAME = "EnOcean Light"
