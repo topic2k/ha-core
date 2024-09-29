@@ -9,6 +9,7 @@ from typing import Any
 from enocean.utils import combine_hex
 from enocean4ha_bridge import EnOceanGateway, EO4HASensor, EO4HAHumiditySensor, EO4HAIlluminanceSensor, EO4HAOccupancySensor, EO4HAPowerSensor, EO4HATemperatureSensor, EO4HAWindowHandleSensor
 import voluptuous as vol
+from homeassistant.helpers import device_registry as dr
 
 from homeassistant.components.sensor import (
     PLATFORM_SCHEMA as SENSOR_PLATFORM_SCHEMA,
@@ -31,8 +32,13 @@ import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
-from .const import CONF_EEP, DATA_ENOCEAN, ENOCEAN_DONGLE, LOGGER
-from .device import EnOceanEntity
+from .const import CONF_EEP, DATA_ENOCEAN, ENOCEAN_DONGLE, LOGGER, SENSOR_TYPES, SENSOR_TYPE_HUMIDITY, \
+    SENSOR_TYPE_TEMPERATURE, SENSOR_TYPE_OCCUPANCY, SENSOR_TYPE_ILLUMINANCE, SENSOR_TYPE_WINDOWHANDLE, \
+    SENSOR_TYPE_POWER, DOMAIN
+from .enocean_entity import EnOceanEntity
+from enocean.utils import to_hex_string
+from . import EnOceanConfigEntry
+from ...helpers.device_registry import DeviceInfo
 
 CONF_MAX_TEMP = "max_temp"
 CONF_MIN_TEMP = "min_temp"
@@ -41,12 +47,14 @@ CONF_RANGE_TO = "range_to"
 
 DEFAULT_NAME = "EnOcean sensor"
 
-SENSOR_TYPE_HUMIDITY = "humidity"
-SENSOR_TYPE_ILLUMINANCE = "illuminance"
-SENSOR_TYPE_OCCUPANCY = "occupancy"
-SENSOR_TYPE_POWER = "powersensor"
-SENSOR_TYPE_TEMPERATURE = "temperature"
-SENSOR_TYPE_WINDOWHANDLE = "windowhandle"
+# SENSOR_TYPE_HUMIDITY = "humidity"
+# SENSOR_TYPE_ILLUMINANCE = "illuminance"
+# SENSOR_TYPE_OCCUPANCY = "occupancy"
+# SENSOR_TYPE_POWER = "powersensor"
+# SENSOR_TYPE_TEMPERATURE = "temperature"
+# SENSOR_TYPE_WINDOWHANDLE = "windowhandle"
+
+
 
 PLATFORM_SCHEMA = SENSOR_PLATFORM_SCHEMA.extend(
     {
@@ -63,16 +71,6 @@ class EnOceanSensorEntityDescription(SensorEntityDescription):
 
     unique_id: Callable[[list[int]], str | None]
 
-
-SENSOR_DESC_TEMPERATURE = EnOceanSensorEntityDescription(
-    key=SENSOR_TYPE_TEMPERATURE,
-    name="Temperature",
-    native_unit_of_measurement=UnitOfTemperature.CELSIUS,
-    suggested_display_precision=2,
-    device_class=SensorDeviceClass.TEMPERATURE,
-    state_class=SensorStateClass.MEASUREMENT,
-    unique_id=lambda dev_id: f"{combine_hex(dev_id)}-{SENSOR_TYPE_TEMPERATURE}",
-)
 
 SENSOR_DESC_HUMIDITY = EnOceanSensorEntityDescription(
     key=SENSOR_TYPE_HUMIDITY,
@@ -110,12 +108,56 @@ SENSOR_DESC_POWER = EnOceanSensorEntityDescription(
     unique_id=lambda dev_id: f"{combine_hex(dev_id)}-{SENSOR_TYPE_POWER}",
 )
 
+SENSOR_DESC_TEMPERATURE = EnOceanSensorEntityDescription(
+    key=SENSOR_TYPE_TEMPERATURE,
+    name="Temperature",
+    native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+    suggested_display_precision=2,
+    device_class=SensorDeviceClass.TEMPERATURE,
+    state_class=SensorStateClass.MEASUREMENT,
+    unique_id=lambda dev_id: f"{combine_hex(dev_id)}-{SENSOR_TYPE_TEMPERATURE}",
+)
+
 SENSOR_DESC_WINDOWHANDLE = EnOceanSensorEntityDescription(
     key=SENSOR_TYPE_WINDOWHANDLE,
     name="WindowHandle",
     translation_key="window_handle",
     unique_id=lambda dev_id: f"{combine_hex(dev_id)}-{SENSOR_TYPE_WINDOWHANDLE}",
 )
+
+SENSORS: tuple[EnOceanSensorEntityDescription, ...] = [
+    SENSOR_DESC_HUMIDITY,
+    SENSOR_DESC_ILLUMINANCE,
+    SENSOR_DESC_OCCUPANCY,
+    SENSOR_DESC_POWER,
+    SENSOR_DESC_TEMPERATURE,
+    SENSOR_DESC_WINDOWHANDLE
+]
+
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    config_entry: EnOceanConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up WLED sensor based on a config entry."""
+    LOGGER.info(f"sensor.async_setup_entry: {config_entry}")
+    # coordinator = entry.runtime_data
+
+    sensors = {
+        SENSOR_TYPE_HUMIDITY: (EnOceanHumiditySensor, SENSOR_DESC_HUMIDITY),
+        SENSOR_TYPE_ILLUMINANCE: (EnOceanIlluminanceSensor, SENSOR_DESC_ILLUMINANCE),
+        SENSOR_TYPE_OCCUPANCY: (EnOceanOccupancySensor, SENSOR_DESC_OCCUPANCY),
+        SENSOR_TYPE_POWER: (EnOceanPowerSensor, SENSOR_DESC_POWER),
+        SENSOR_TYPE_TEMPERATURE: (EnOceanTemperatureSensor, SENSOR_DESC_TEMPERATURE),
+        SENSOR_TYPE_WINDOWHANDLE: (EnOceanWindowHandle, SENSOR_DESC_WINDOWHANDLE),
+    }
+
+    if 'device_type' in config_entry.data:
+        if config_entry.data['device_type'] in sensors:
+            sensor = sensors[config_entry.data['device_type']][0]
+            sensor_description = sensors[config_entry.data['device_type']][1]
+            async_add_entities([sensor(config_entry, sensor_description)])
 
 
 async def async_setup_platform(
@@ -157,18 +199,23 @@ class EnOceanSensor(EnOceanEntity, RestoreSensor):
 
     def __init__(
         self,
-        dev_id: list[int],
-        eep: list[int],
-        dev_name: str,
+        config_entry: EnOceanConfigEntry,
         description: EnOceanSensorEntityDescription,
     ) -> None:
         """Initialize the EnOcean sensor device."""
-        super().__init__(dev_id, eep)
+        super().__init__(config_entry.data[CONF_ID], config_entry.options[CONF_EEP])
+        dev_id_str = to_hex_string(config_entry.data[CONF_ID])
         self.entity_description = description
-        self._attr_name = f"{description.name} {dev_name}"
-        self._attr_unique_id = description.unique_id(dev_id)
+        self._attr_name = f"{description.name} {config_entry.title}"
+        self._attr_unique_id = description.unique_id(config_entry.data[CONF_ID])
         self.eo_sensor = None
-
+        # gateway: EnOceanGateway = self.hass.data[DATA_ENOCEAN]
+        self._attr_device_info = DeviceInfo(
+            # name="start/stop teach in",
+            identifiers={(DOMAIN, dev_id_str)},
+            model_id=f"Device ID: {dev_id_str}",
+            # via_device=(DOMAIN, gateway.sender_id_str)
+        )
     async def async_added_to_hass(self) -> None:
         """Call when entity about to be added to hass."""
         await self.add_eo4ha_bridge()
@@ -182,7 +229,11 @@ class EnOceanSensor(EnOceanEntity, RestoreSensor):
             self._attr_native_value = sensor_data.native_value
 
     async def add_eo4ha_bridge(self):
-        dongle: EnOceanGateway = self.hass.data[DATA_ENOCEAN][ENOCEAN_DONGLE]
+        try:
+            dongle: EnOceanGateway = self.hass.data[DATA_ENOCEAN]
+        except KeyError:
+            LOGGER.warning("sensor: no gateway configured")
+            return
         self.eo_sensor = EO4HASensor(
             gateway=dongle,
             dev_id=self.dev_id,
@@ -219,7 +270,11 @@ class EnOceanHumiditySensor(EnOceanSensor):
     """Representation of an EnOcean humidity sensor device."""
 
     async def add_eo4ha_bridge(self) -> None:
-        dongle: EnOceanGateway = self.hass.data[DATA_ENOCEAN][ENOCEAN_DONGLE]
+        try:
+            dongle: EnOceanGateway = self.hass.data[DATA_ENOCEAN]
+        except KeyError:
+            LOGGER.warning("humidity_sensor: no gateway configured")
+            return
         self.eo_sensor = EO4HAHumiditySensor(
             gateway=dongle,
             dev_id=self.dev_id,
@@ -242,7 +297,11 @@ class EnOceanIlluminanceSensor(EnOceanSensor):
     """Representation of an EnOcean illumination sensor."""
 
     async def add_eo4ha_bridge(self) -> None:
-        dongle: EnOceanGateway = self.hass.data[DATA_ENOCEAN][ENOCEAN_DONGLE]
+        try:
+            dongle: EnOceanGateway = self.hass.data[DATA_ENOCEAN]
+        except KeyError:
+            LOGGER.warning("illuminance_sensor: no gateway configured")
+            return
         self.eo_sensor = EO4HAIlluminanceSensor(
             gateway=dongle,
             dev_id=self.dev_id,
@@ -265,7 +324,11 @@ class EnOceanOccupancySensor(EnOceanSensor):
     """Representation of an EnOcean occupancy sensor."""
 
     async def add_eo4ha_bridge(self) -> None:
-        dongle: EnOceanGateway = self.hass.data[DATA_ENOCEAN][ENOCEAN_DONGLE]
+        try:
+            dongle: EnOceanGateway = self.hass.data[DATA_ENOCEAN]
+        except KeyError:
+            LOGGER.warning("occupancy_sensor: no gateway configured")
+            return
         self.eo_sensor = EO4HAOccupancySensor(
             gateway=dongle,
             dev_id=self.dev_id,
@@ -294,7 +357,11 @@ class EnOceanPowerSensor(EnOceanSensor):
     """Representation of an EnOcean power sensor."""
 
     async def add_eo4ha_bridge(self) -> None:
-        dongle: EnOceanGateway = self.hass.data[DATA_ENOCEAN][ENOCEAN_DONGLE]
+        try:
+            dongle: EnOceanGateway = self.hass.data[DATA_ENOCEAN]
+        except KeyError:
+            LOGGER.warning("power_sensor: no gateway configured")
+            return
         self.eo_sensor = EO4HAPowerSensor(
             gateway=dongle,
             dev_id=self.dev_id,
@@ -317,7 +384,11 @@ class EnOceanTemperatureSensor(EnOceanSensor):
     """Representation of an EnOcean temperature sensor device."""
 
     async def add_eo4ha_bridge(self) -> None:
-        dongle: EnOceanGateway = self.hass.data[DATA_ENOCEAN][ENOCEAN_DONGLE]
+        try:
+            dongle: EnOceanGateway = self.hass.data[DATA_ENOCEAN]
+        except KeyError:
+            LOGGER.warning("temperature_sensor: no gateway configured")
+            return
         self.eo_sensor = EO4HATemperatureSensor(
             gateway=dongle,
             dev_id=self.dev_id,
@@ -340,7 +411,11 @@ class EnOceanWindowHandle(EnOceanSensor):
     """Representation of an EnOcean window handle device."""
 
     async def add_eo4ha_bridge(self) -> None:
-        dongle: EnOceanGateway = self.hass.data[DATA_ENOCEAN][ENOCEAN_DONGLE]
+        try:
+            dongle: EnOceanGateway = self.hass.data[DATA_ENOCEAN]
+        except KeyError:
+            LOGGER.warning("window_handle_sensor: no gateway configured")
+            return
         self.eo_sensor = EO4HAWindowHandleSensor(
             gateway=dongle,
             dev_id=self.dev_id,

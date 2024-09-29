@@ -1,6 +1,19 @@
 {
   "config": {
     "step": {
+      "user": {
+        "menu_options": {
+          "add_binary_sensor": "einen Binär-Sensor hinzufügen",
+          "add_light": "ein Licht hinzufügen",
+          "add_humidity_sensor": "einen Feuchtigkeitssensor hinzufügen",
+          "add_illuminance_sensor": "einen Beleuchtungsstärkesensor hinzufügen",
+          "add_occupancy_sensor": "einen Präsenzmelder hinzufügen",
+          "add_powersensor_sensor": "einen Leistungssensor hinzufügen",
+          "add_temperature_sensor": "einen Temperatursensor hinzufügen",
+          "add_windowhandle_sensor": "einen Fenstergriffsensor hinzufügen",
+          "add_switch": "einen Schalter hinzufügen"
+        }
+      },
       "detect": {
         "title": "Select the path to your ENOcean dongle",
         "data": {
@@ -12,6 +25,30 @@
         "data": {
           "path": "[%key:component::enocean::config::step::detect::data::path%]"
         }
+      },
+      "add_windowhandle_sensor": {
+        "title": "ein neuer Fenstergriff",
+        "description": "mit batterielosem Funksender",
+        "data": {
+          "id": "Geräte-ID",
+          "ssl": "SSL halt (1)"
+        },
+        "data_description": {
+          "id": "z.B.: DEADBEEF oder DE-AD-BE-EF oder DE:AD:BE:EF",
+          "ssl": "ohne Worte (1)"
+        },
+        "sections": {
+          "ssl_options": {
+            "name": "SSL Optionen",
+            "description": "A description of the section",
+            "data": {
+              "ssl": "SSL halt"
+            },
+            "data_description": {
+              "ssl": "ohne Worte"
+            }
+        }
+        }
       }
     },
     "error": {
@@ -19,6 +56,76 @@
     },
     "abort": {
       "invalid_dongle_path": "Invalid dongle path"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "24ghz_temperature": {
+        "name": "2.4GHz Temperature"
+      },
+      "5ghz_2_temperature": {
+        "name": "5GHz Temperature (Radio 2)"
+      },
+      "5ghz_temperature": {
+        "name": "5GHz Temperature"
+      },
+      "6ghz_temperature": {
+        "name": "6GHz Temperature"
+      },
+      "cpu_temperature": {
+        "name": "CPU Temperature"
+      },
+      "devices_connected": {
+        "name": "Devices connected"
+      },
+      "download": {
+        "name": "Download"
+      },
+      "download_speed": {
+        "name": "Download speed"
+      },
+      "load_avg_15m": {
+        "name": "Average load (15m)"
+      },
+      "load_avg_1m": {
+        "name": "Average load (1m)"
+      },
+      "load_avg_5m": {
+        "name": "Average load (5m)"
+      },
+      "upload": {
+        "name": "Upload"
+      },
+      "upload_speed": {
+        "name": "Upload speed"
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "consider_home": "Seconds to wait before considering a device away",
+          "dnsmasq": "The location in the router of the dnsmasq.leases files",
+          "interface": "The interface that you want statistics from (e.g. eth0, eth1 etc)",
+          "require_ip": "Devices must have IP (for access point mode)",
+          "track_unknown": "Track unknown / unnamed devices"
+        }
+      }
+    }
+  },
+  "selector": {
+    "known_devices": {
+      "options": {
+        "nodon_SIN-2-1-01" : "nodon SIN-2-1-01 - Relay Switch (1 channel)",
+        "nodon_SIN-2-2-01" : "nodon SIN-2-2-01 - Relay Switch (2 channel)",
+        "nodon_PIR-2-1-01" : "nodon PIR-2-1-01 - Motion and Illumination Sensor",
+        "nodon_MSP-2-1-11" : "nodon MSP-2-1-11 - Micro Smart Plug",
+        "nodon_STP-2-1-05" : "nodon STP-2-1-05 - Temperature Sensor",
+        "nodon_STPH-2-1-05" : "nodon STPH-2-1-05 - Temperature and Humidity Sensor",
+        "Hoppe_SecuSignal" : "Hoppe eFenstergriff SecuSignal",
+        "EnOcean_PTM210" : "EnOcean PTM210 - Push button multi-channel switch module"
+      }
     }
   }
 }

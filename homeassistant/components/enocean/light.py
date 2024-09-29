@@ -20,7 +20,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
 from .const import CONF_CHANNEL, CONF_EEP, DATA_ENOCEAN, CONF_DIMMABLE, ENOCEAN_DONGLE, LOGGER
-from .device import EnOceanEntity
+from .enocean_entity import EnOceanEntity
 
 DEFAULT_NAME = "EnOcean Light"
 
@@ -72,7 +72,11 @@ class EnOceanLight(EnOceanEntity, LightEntity):
 
     async def async_added_to_hass(self) -> None:
         """Call when entity about to be added to hass."""
-        dongle: EnOceanGateway = self.hass.data[DATA_ENOCEAN][ENOCEAN_DONGLE]
+        try:
+            dongle: EnOceanGateway = self.hass.data[DATA_ENOCEAN]
+        except KeyError:
+            LOGGER.warning("light: no gateway configured")
+            return
         self.eo_light = EO4HALight(
             gateway=dongle,
             dev_id=self.dev_id,
