@@ -1,22 +1,25 @@
 """Support for EnOcean devices."""
-import enocean
-import enocean4ha_bridge
+
 import homeassistant.helpers.config_validation as cv
+
 from enocean4ha_bridge import EnOceanGateway
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_DEVICE, Platform
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import device_registry
 from homeassistant.util.hass_dict import HassKey
-from .const import DATA_ENOCEAN, DOMAIN, ENOCEAN_DONGLE, LOGGER
-from ...helpers.device_registry import DeviceEntry
+from .const import DOMAIN, LOGGER, CONF_GATEWAY
+
 
 PLATFORMS = [
     Platform.BINARY_SENSOR,
     Platform.BUTTON,
-    # Platform.LIGHT,
+    Platform.LIGHT,
+    Platform.NUMBER,
+    Platform.SELECT,
     Platform.SENSOR,
-    Platform.SWITCH
+    Platform.SWITCH,
+    Platform.VALVE,
 ]
 
 
@@ -24,10 +27,6 @@ type EnOceanConfigEntry = ConfigEntry[EnOceanGateway]
 
 ENOCEAN_KEY: HassKey[EnOceanGateway] = HassKey(DOMAIN)
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
-# CONFIG_SCHEMA = vol.Schema(
-#     schema={DOMAIN: vol.Schema({vol.Required(CONF_DEVICE): cv.string})},
-#     extra=vol.ALLOW_EXTRA
-# )
 
 
 async def async_setup(hass: HomeAssistant, config_entry: EnOceanConfigEntry) -> bool:
@@ -49,33 +48,31 @@ async def async_setup(hass: HomeAssistant, config_entry: EnOceanConfigEntry) -> 
 
     # hass.data[ENOCEAN_KEY] = EnOceanGateway(hass)
     # await hass.data[ENOCEAN_KEY].async_request_refresh()
-    LOGGER.info(f"init.async_setup: {config_entry=}")
+    # LOGGER.info(f"init.async_setup: {config_entry=}")
     return True
 
 
 async def async_setup_entry(hass: HomeAssistant, config_entry: EnOceanConfigEntry) -> bool:
     """Set up an EnOcean dongle for the given entry."""
     # LOGGER.info(f"init.async_setup_entry")
-    if 'device' in config_entry.data:
-        hass.data.setdefault(DATA_ENOCEAN, {})
-        gateway = EnOceanGateway(hass, config_entry.data[CONF_DEVICE], LOGGER.getEffectiveLevel())
+    if CONF_GATEWAY in config_entry.data:
+        hass.data.setdefault(DOMAIN, {})
+        gateway = EnOceanGateway(hass, config_entry.data[CONF_GATEWAY], LOGGER.getEffectiveLevel())
         await gateway.load()
-        hass.data[DATA_ENOCEAN] = gateway
+        hass.data[DOMAIN] = gateway
         # Store an instance of the "connecting" class that does the work of speaking
         # with your actual devices.
         config_entry.runtime_data = gateway
 
-        device_registry = dr.async_get(hass)
-        device_registry.async_get_or_create(
+        dr = device_registry.async_get(hass)
+        dev = dr.async_get_or_create(
             config_entry_id=config_entry.entry_id,
-            connections={('serial', config_entry.data[CONF_DEVICE])},
+            connections={('serial', config_entry.data[CONF_GATEWAY])},
             identifiers={(DOMAIN, gateway.sender_id_str)},
             manufacturer=gateway.manufacturer,
             name="EnOcean Gateway",
             model=gateway.product,
             model_id=f"Base ID: {gateway.sender_id_str}",
-            sw_version=enocean.__version__,
-            hw_version=enocean4ha_bridge.__version__,
         )
 
     # This creates each HA object for each platform your device requires.
@@ -90,9 +87,9 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: EnOceanConfigEntr
 
 async def async_unload_entry(hass: HomeAssistant, config_entry: EnOceanConfigEntry) -> bool:
     """Unload ENOcean config entry."""
-    # enocean_dongle = hass.data[DATA_ENOCEAN]
+    # enocean_dongle = hass.data[DOMAIN]
     # enocean_dongle.unload()
-    # hass.data.pop(DATA_ENOCEAN)
+    # hass.data.pop(DOMAIN)
 
     # This is called when an entry/configured device is to be removed. The class
     # needs to unload itself, and remove callbacks. See the classes for further
@@ -102,7 +99,7 @@ async def async_unload_entry(hass: HomeAssistant, config_entry: EnOceanConfigEnt
             gateway: EnOceanGateway = config_entry.runtime_data
             unload_ok = gateway.unload()
             # if unload_ok := gateway.unload():
-            #     hass.data.pop(DATA_ENOCEAN)
+            #     hass.data.pop(DOMAIN)
 
     return unload_ok
 

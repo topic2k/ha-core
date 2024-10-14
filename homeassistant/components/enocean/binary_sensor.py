@@ -1,30 +1,40 @@
-"""Support for EnOcean binary sensors."""
+""" Support for EnOcean binary sensors. """
 
-from __future__ import annotations
+from dataclasses import dataclass
 
-from enocean.utils import combine_hex
 import voluptuous as vol
 
-from enocean4ha_bridge import EnOceanGateway, EO4HABinarySensor
+from enocean.utils import to_hex_string
+from enocean4ha_bridge import EO4HABinarySensor
+
 from homeassistant.components.binary_sensor import (
-    DEVICE_CLASSES_SCHEMA,
-    PLATFORM_SCHEMA as BINARY_SENSOR_PLATFORM_SCHEMA,
     BinarySensorDeviceClass,
     BinarySensorEntity,
-    BinarySensorEntityDescription
+    BinarySensorEntityDescription,
+    DEVICE_CLASSES_SCHEMA,
+    PLATFORM_SCHEMA as BINARY_SENSOR_PLATFORM_SCHEMA
 )
-from homeassistant.const import CONF_DEVICE_CLASS, CONF_ID, CONF_NAME, Platform
+from homeassistant.const import CONF_DEVICE_CLASS, CONF_ENABLED, CONF_ENTITIES, CONF_ID, CONF_NAME, Platform
 from homeassistant.core import HomeAssistant
-import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers import (
+    config_validation as cv,
+    device_registry as dr,
+)
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
-from .const import CONF_EEP, DATA_ENOCEAN, ENOCEAN_DONGLE, LOGGER, CONF_BUTTON, DOMAIN
 
-from .enocean_entity import EnOceanEntity
 from . import EnOceanConfigEntry
-from ...helpers.device_registry import DeviceInfo
-from ...helpers import device_registry as dr
-
+from .const import (
+    CONF_BUTTON,
+    CONF_CHANNEL,
+    CONF_CHANNEL_COUNT,
+    CONF_EEP,
+    CONF_GATEWAY,
+    CONF_PROFILE_SHORTCUT,
+    DOMAIN
+)
+from .enocean_entity import EnOceanEntity
 
 DEFAULT_NAME = "EnOcean binary sensor"
 DEPENDENCIES = ["enocean"]
@@ -41,133 +51,160 @@ PLATFORM_SCHEMA = BINARY_SENSOR_PLATFORM_SCHEMA.extend(
 )
 
 
+@dataclass(frozen=True, kw_only=True)
+class EnOceanBinarySensorEntityDescription(BinarySensorEntityDescription):
+    """ Describes EnOcean sensor entity. """
+    unique_id: str
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: EnOceanConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Add sensors for passed config_entry in HA."""
-    LOGGER.info(f"binary_sensor.async_setup_entry: {config_entry=}")
-    # if 'device_type' in config_entry.data:
-    #     if config_entry.data['device_type'] == Platform.BINARY_SENSOR:
-    #         description = BinarySensorEntityDescription(
-    #             key=Platform.BINARY_SENSOR,
-    #             name="BinarySensor",
-    #             translation_key="binary_sensor",
-    #             unique_id=f"{combine_hex(dev_id)}-{config_entry.data[CONF_ID]}-{config_entry.data[]}",
-    #         )
-    #         sensor = sensors[config_entry.data['device_type']][0]
-    #         sensor_description = sensors[config_entry.data['device_type']][1]
-    #         async_add_entities([EnOceanBinarySensor(config_entry, sensor_description)])
+    """ Add binary sensors for passed config_entry in HA. """
 
+    if CONF_GATEWAY in config_entry.data:
+        return
 
-    # eo_gateway = config_entry.runtime_data
+    if not config_entry.data[CONF_ENTITIES].get(Platform.BINARY_SENSOR):
+        return
 
+    entities = []
+    entity_config = dict(config_entry.data)
+    dev_id_str = to_hex_string(entity_config[CONF_ID])
 
-    # new_devices = []
-    # for roller in hub.rollers:
-    #     new_devices.append(BatterySensor(roller))
-    #     new_devices.append(IlluminanceSensor(roller))
-    # if new_devices:
-    #     async_add_entities(new_devices)
+    device_registry = dr.async_get(hass)
+    device_registry.async_get_or_create(
+        config_entry_id=config_entry.entry_id,
+        identifiers={(DOMAIN, dev_id_str)},
+        name=config_entry.title,
+        model=f"Base ID: {dev_id_str}",
+        model_id=f"EEP: {to_hex_string(entity_config[CONF_EEP], sep='-')}",
+    )
+    for entity_options in entity_config[CONF_ENTITIES][Platform.BINARY_SENSOR]:
+        if CONF_CHANNEL_COUNT in entity_config:
+            for channel in range(entity_config[CONF_CHANNEL_COUNT]):
+                name = get_name(
+                    entry_name=entity_options[CONF_NAME],
+                    button=entity_options[CONF_BUTTON],
+                    device_class=entity_options.get(CONF_DEVICE_CLASS),
+                    chnnl=channel,
+                )
+                uid = get_unique_id(
+                    dev_id_str=dev_id_str,
+                    button=entity_options[CONF_BUTTON],
+                    device_class=entity_options.get(CONF_DEVICE_CLASS),
+                    chnnl=channel,
+                )
+                description = EnOceanBinarySensorEntityDescription(
+                    key=Platform.BINARY_SENSOR,
+                    name=name,
+                    translation_key="binary_sensor",
+                    unique_id=uid
+                )
+                entity_options[CONF_CHANNEL] = channel
+                entities.append(EnOceanBinarySensor(entity_config, description, entity_options))
+        else:
+            name = get_name(
+                entry_name=entity_options[CONF_NAME],
+                button=entity_options[CONF_BUTTON],
+                device_class=entity_options.get(CONF_DEVICE_CLASS),
+                chnnl=None,
+            )
+            uid = get_unique_id(
+                dev_id_str=dev_id_str,
+                button=entity_options[CONF_BUTTON],
+                device_class=entity_options.get(CONF_DEVICE_CLASS),
+                chnnl=None,
+            )
+            description = EnOceanBinarySensorEntityDescription(
+                key=Platform.BINARY_SENSOR,
+                name=name,
+                translation_key="binary_sensor",
+                unique_id=uid
+            )
+            entities.append(EnOceanBinarySensor(entity_config, description, entity_options))
 
+    async_add_entities(entities)
 
 def setup_platform(
     hass: HomeAssistant,
-    config: ConfigType,
+    config_entry: ConfigType,
     add_entities: AddEntitiesCallback,
     discovery_info: DiscoveryInfoType | None = None,
 ) -> None:
-    """Set up the Binary Sensor platform for EnOcean."""
-    dev_id: list[int] = config[CONF_ID]
-    dev_name: str = config[CONF_NAME]
-    device_class: BinarySensorDeviceClass | None = config.get(CONF_DEVICE_CLASS)
-    eep: list[int] = config[CONF_EEP]
-    button: str | None = config.get(CONF_BUTTON)
+    """ Set up the Binary Sensor platform for EnOcean. """
+    dev_id: list[int] = config_entry[CONF_ID]
+    dev_name: str = config_entry[CONF_NAME]
+    device_class: BinarySensorDeviceClass | None = config_entry.get(CONF_DEVICE_CLASS)
+    eep: list[int] = config_entry[CONF_EEP]
+    button: str | None = config_entry.get(CONF_BUTTON)
 
-    add_entities([EnOceanBinarySensor(dev_id, eep, dev_name, device_class, button, config)])
+    add_entities([EnOceanBinarySensor(config_entry, BinarySensorEntityDescription)])
 
 
-class EnOceanBinarySensor(EnOceanEntity, BinarySensorEntity):
-    """Representation of EnOcean binary sensors such as wall switches.
+def get_unique_id(dev_id_str, button, device_class, chnnl) -> str:
+    uid = f"{dev_id_str}"
+    if button:
+        uid += f"-button_{button}"
+    elif device_class:
+        uid += f"-{device_class}"
+    else :
+        uid += f"-{Platform.BINARY_SENSOR}"
+    if chnnl is not None:
+        uid += f"-channel_{chnnl}"
+    return uid
 
-    Supported EEPs (EnOcean Equipment Profiles):
-    - F6-02-01 (Light and Blind Control - Application Style 2)
-    - F6-02-02 (Light and Blind Control - Application Style 1)
-    """
+def get_name(entry_name, button, device_class, chnnl) -> str:
+    name = f"{entry_name}"
+    if button:
+        name += f" Button {button}"
+    elif device_class:
+        name += f" {device_class}"
+    else:
+        name += f" {Platform.BINARY_SENSOR}"
+    if chnnl is not None:
+        name += f" {CONF_CHANNEL} {chnnl}"
+    return name
+
+
+class EnOceanBinarySensor(EO4HABinarySensor, EnOceanEntity, BinarySensorEntity):
+    """ Representation of EnOcean binary sensors such as wall switches. """
 
     def __init__(
         self,
-        dev_id: list[int],
-        eep: list[int],
-        dev_name: str,
-        device_class: BinarySensorDeviceClass | None,
-        button: str | None,
-        config
+        config: dict,
+        description: EnOceanBinarySensorEntityDescription,
+        options,
     ) -> None:
-        """Initialize the EnOcean binary sensor."""
-        super().__init__(dev_id, eep)
-        self._attr_device_class = device_class
-        self.which = -1
-        self.onoff = -1
-        self.button = button
-        self._attr_unique_id = f"{combine_hex(dev_id)}-{device_class}-button_{button}"
-        self._attr_name = dev_name
+        """ Initialize the EnOcean binary sensor. """
+        dev_id = config[CONF_ID]
+        dev_id_str = to_hex_string(dev_id)
+        super().__init__(dev_id, config[CONF_EEP])
+        self.button = options.get(CONF_BUTTON)
+        self.shortcut = options.get(CONF_PROFILE_SHORTCUT)
+        self.channel = options.get(CONF_CHANNEL)
         self.eo_sensor = None
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, combine_hex(self.dev_id))},
-            manufacturer="Signify",
-            suggested_area="Kitchen",
-            name=self.name,
-            model="self.modelname",
-            model_id="self.modelid",
-            sw_version="self.swversion",
-            hw_version="self.hwversion",
-        )
+        self.onoff = -1
+        self.which = -1
 
-    async def async_added_to_hass(self) -> None:
-        """Call when entity about to be added to hass."""
-        # device_registry = dr.async_get(self.hass)
-        # device_registry.async_get_or_create(
-        #     config_entry_id=self.entity_id,
-        #     #connections={(dr.CONNECTION_NETWORK_MAC, config.mac)},
-        #     identifiers={(DOMAIN, combine_hex(self.dev_id))},
-        #     manufacturer="Signify",
-        #     suggested_area="Kitchen",
-        #     name=self.name,
-        #     model="self.modelname",
-        #     model_id="self.modelid",
-        #     sw_version="self.swversion",
-        #     hw_version="self.hwversion",
-        # )
-        try:
-            dongle: EnOceanGateway = self.hass.data[DATA_ENOCEAN]
-        except KeyError:
-            LOGGER.warning("binary_sensor: no gateway configured")
-            return
-        self.eo_sensor = EO4HABinarySensor(gateway=dongle, dev_id=self.dev_id, eep=self.eep, button=self.button, loglevel=LOGGER.getEffectiveLevel())
-        await super().async_added_to_hass()
-
-    def device_info(self) -> DeviceInfo | None:
-        return DeviceInfo(
-            identifiers={(DOMAIN, combine_hex(self.dev_id))},
-            manufacturer="Signify",
-            suggested_area="Kitchen",
-            name=self.name,
-            model="self.modelname",
-            model_id="self.modelid",
-            sw_version="self.swversion",
-            hw_version="self.hwversion",
-        )
+        self._attr_unique_id = description.unique_id
+        self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, dev_id_str)})
+        self.entity_description = description
+        self._attr_entity_registry_enabled_default = options.get(CONF_ENABLED, True)
 
     def value_changed(self, packet):
-        """Fire an event with the data that have changed."""
-        result = self.eo_sensor.parse_packet(
+        """ Fire an event with the data that have changed. """
+        result = self.parse_packet(
             packet=packet,
             actual_which=self.which,
-            actual_onoff=self.onoff
+            actual_onoff=self.onoff,
+            shortcut=self.shortcut,
         )
+        if not result:
+            return
+
         if "legacy" in result:
             pushed, self.which, self.onoff = result["legacy"]
             if pushed != self._attr_state:
@@ -183,7 +220,8 @@ class EnOceanBinarySensor(EnOceanEntity, BinarySensorEntity):
                     "onoff": self.onoff,
                 },
             )
-        else:
+        elif "status" in result:
             if result["status"] != self._attr_is_on:
                 self._attr_is_on = result["status"]
+                self._attr_extra_state_attributes = result.get('extra_state_attr', {})
                 self.schedule_update_ha_state()
