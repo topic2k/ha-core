@@ -45,6 +45,10 @@ class EnOceanEntity(Entity):
             )
         )
 
+    async def async_will_remove_from_hass(self) -> None:
+        """ Run when entity will be removed from hass. """
+        LOGGER.warning(f"{type(self).__name__}: will_remove_from_hass")
+
     def _message_received_callback(self, packet):
         """ Handle incoming packets. """
         if packet.sender_int == combine_hex(self.dev_id):

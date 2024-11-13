@@ -21,7 +21,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
 from . import EnOceanConfigEntry
-from .const import CONF_CHANNEL, CONF_CHANNEL_COUNT, CONF_EEP, CONF_GATEWAY, DOMAIN, LOGGER
+from .const import CONF_CHANNEL, CONF_CHANNEL_COUNT, CONF_EEP, CONF_GATEWAY, CONF_MANUFACTURER, DOMAIN, LOGGER
 from .enocean_entity import EnOceanEntity
 
 DEFAULT_NAME = "EnOcean Switch"
@@ -64,6 +64,7 @@ async def async_setup_entry(
         config_entry_id=config_entry.entry_id,
         identifiers={(DOMAIN, dev_id_str)},
         name=config_entry.title,
+        manufacturer=entity_config.get(CONF_MANUFACTURER),
         model=f"Base ID: {dev_id_str}",
         model_id=f"EEP: {to_hex_string(entity_config[CONF_EEP], sep='-')}",
     )

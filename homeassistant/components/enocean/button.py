@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from enocean.protocol.eep import EEPSoup
 from enocean.utils import to_hex_string
+from enocean4ha_bridge import EnOceanGateway
 
 from homeassistant.components.button import ButtonEntity, ButtonEntityDescription
 from homeassistant.const import CONF_ENTITIES, CONF_ENTITY_CATEGORY, CONF_ID, CONF_NAME, EntityCategory, Platform
@@ -21,7 +22,7 @@ from .const import (
     CONF_GATEWAY,
     CONF_PROFILE_SHORTCUT,
     DEVICE_CLASS_PROFILE_SHORTCUT,
-    DOMAIN,
+    DOMAIN, PLATFORMS,
 )
 from .enocean_entity import EnOceanEntity
 
@@ -68,6 +69,26 @@ async def async_setup_entry(
             entities.append(EnOceanButton(entity_config, description, entity_options))
 
     async_add_entities(entities)
+    await hass.config_entries.async_forward_entry_unload(config_entry, Platform.BUTTON)
+
+async def async_unload_entry(hass: HomeAssistant, config_entry: EnOceanConfigEntry) -> bool:
+    """Unload ENOcean config entry."""
+    print("UNLOAD BUTTON")
+    # enocean_dongle = hass.data[DOMAIN]
+    # enocean_dongle.unload()
+    # hass.data.pop(DOMAIN)
+
+    # This is called when an entry/configured device is to be removed. The class
+    # needs to unload itself, and remove callbacks. See the classes for further
+    # details
+    if unload_ok := await hass.config_entries.async_unload_platforms(config_entry, PLATFORMS):
+        if hasattr(config_entry, 'runtime_data'):
+            gateway: EnOceanGateway = config_entry.runtime_data
+            unload_ok = gateway.unload()
+            # if unload_ok := gateway.unload():
+            #     hass.data.pop(DOMAIN)
+
+    return unload_ok
 
 
 @dataclass(frozen=True, kw_only=True)

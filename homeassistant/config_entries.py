@@ -86,6 +86,7 @@ if TYPE_CHECKING:
 
 
 _LOGGER = logging.getLogger(__name__)
+_LOGGER.setLevel(logging.DEBUG)
 
 SOURCE_BLUETOOTH = "bluetooth"
 SOURCE_DHCP = "dhcp"

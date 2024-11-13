@@ -26,6 +26,7 @@ CONF_PROFILE_SHORTCUT: Final = "shortcut"
 CONF_SELECT_OPTIONS: Final = "options"
 CONF_MEASUREMENT_MODE: Final = "measurement_mode"
 CONF_REPORT_MEASUREMENT: Final = "report_measurement"
+CONF_MANUFACTURER: Final = "manufacturer"
 
 ERROR_INVALID_DONGLE_PATH: Final  = "invalid_dongle_path"
 ERROR_DEVICE_ID_FAULTY: Final = "device_id_faulty"
@@ -44,6 +45,7 @@ PLATFORMS = [
 ]
 
 SENSOR_TYPES = [
+    SENSOR_TYPE_ENERGY := "energy",
     SENSOR_TYPE_HUMIDITY := "humidity",
     SENSOR_TYPE_ILLUMINANCE := "illuminance",
     SENSOR_TYPE_POWER := "powersensor",

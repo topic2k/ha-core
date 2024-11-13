@@ -10,7 +10,7 @@ from enocean.utils import to_hex_string
 from enocean4ha_bridge import (
     __version__ as enocean4ha_bridge_version,
     EnOceanGateway,
-    EO4HAHumiditySensor,
+    EO4HAEnergySensor, EO4HAHumiditySensor,
     EO4HAIlluminanceSensor,
     EO4HAPowerSensor,
     EO4HASensor,
@@ -37,7 +37,7 @@ from homeassistant.const import (
     LIGHT_LUX,
     MATCH_ALL, PERCENTAGE,
     Platform,
-    UnitOfPower,
+    UnitOfEnergy, UnitOfPower,
     UnitOfTemperature
 )
 from homeassistant.core import HomeAssistant
@@ -50,13 +50,13 @@ from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
 from . import EnOceanConfigEntry
 from .const import (
-    CONF_CMD_OR_DIR, CONF_EEP,
+    CONF_CHANNEL, CONF_CHANNEL_COUNT, CONF_CMD_OR_DIR, CONF_EEP,
     CONF_GATEWAY,
     CONF_PROFILE_SHORTCUT,
     DEVICE_CLASS_PROFILE_SHORTCUT,
     DEVICE_CLASS_WINDOWHANDLE,
     DOMAIN,
-    SENSOR_TYPE_HUMIDITY,
+    SENSOR_TYPE_ENERGY, SENSOR_TYPE_HUMIDITY,
     SENSOR_TYPE_ILLUMINANCE,
     SENSOR_TYPE_POWER,
     SENSOR_TYPE_TEMPERATURE,
@@ -127,6 +127,31 @@ async def async_setup_entry(
 
     for entity_options in entity_config[CONF_ENTITIES][Platform.SENSOR]:
         match entity_options[CONF_DEVICE_CLASS]:
+            case SensorDeviceClass.ENERGY:
+                if CONF_CHANNEL_COUNT in entity_config:
+                    for channel in range(entity_config[CONF_CHANNEL_COUNT]):
+                        entity_options[CONF_CHANNEL] = channel
+                        description = EnOceanSensorEntityDescription(
+                            device_class=SensorDeviceClass.ENERGY,
+                            key=f"{dev_id_str}-channel_{channel}-{SENSOR_TYPE_ENERGY}",
+                            name=f"{entity_config[CONF_NAME]} Channel {channel} Energy",
+                            native_unit_of_measurement=UnitOfEnergy.WATT_HOUR,
+                            # state_class=SensorStateClass.MEASUREMENT,
+                            suggested_display_precision=2,
+                            unique_id=f"{dev_id_str}-channel_{channel}-{SENSOR_TYPE_ENERGY}",
+                        )
+                        entities.append(EnOceanEnergySensor(entity_config, description, entity_options))
+                else:
+                    description = EnOceanSensorEntityDescription(
+                        device_class=SensorDeviceClass.ENERGY,
+                        key=f"{dev_id_str}-{SENSOR_TYPE_ENERGY}",
+                        name=f"{entity_config[CONF_NAME]} Energy",
+                        native_unit_of_measurement=UnitOfEnergy.WATT_HOUR,
+                        # state_class=SensorStateClass.MEASUREMENT,
+                        suggested_display_precision=2,
+                        unique_id=f"{dev_id_str}-{SENSOR_TYPE_ENERGY}",
+                    )
+                    entities.append(EnOceanEnergySensor(entity_config, description, entity_options))
             case SensorDeviceClass.HUMIDITY:
                 description = EnOceanSensorEntityDescription(
                     device_class=SensorDeviceClass.HUMIDITY,
@@ -150,16 +175,30 @@ async def async_setup_entry(
                 )
                 entities.append(EnOceanIlluminanceSensor(entity_config, description))
             case SensorDeviceClass.POWER:
-                description = EnOceanSensorEntityDescription(
-                    device_class=SensorDeviceClass.POWER,
-                    key=f"{dev_id_str}-{SENSOR_TYPE_POWER}",
-                    name=f"{entity_config[CONF_NAME]} Power",
-                    native_unit_of_measurement=UnitOfPower.WATT,
-                    state_class=SensorStateClass.MEASUREMENT,
-                    suggested_display_precision=2,
-                    unique_id=f"{dev_id_str}-{SENSOR_TYPE_POWER}",
-                )
-                entities.append(EnOceanPowerSensor(entity_config, description))
+                if CONF_CHANNEL_COUNT in entity_config:
+                    for channel in range(entity_config[CONF_CHANNEL_COUNT]):
+                        entity_options[CONF_CHANNEL] = channel
+                        description = EnOceanSensorEntityDescription(
+                            device_class=SensorDeviceClass.POWER,
+                            key=f"{dev_id_str}-channel_{channel}-{SENSOR_TYPE_POWER}",
+                            name=f"{entity_config[CONF_NAME]} Channel {channel} Power",
+                            native_unit_of_measurement=UnitOfPower.WATT,
+                            # state_class=SensorStateClass.MEASUREMENT,
+                            suggested_display_precision=2,
+                            unique_id=f"{dev_id_str}-channel_{channel}-{SENSOR_TYPE_POWER}",
+                        )
+                        entities.append(EnOceanPowerSensor(entity_config, description, entity_options))
+                else:
+                    description = EnOceanSensorEntityDescription(
+                        device_class=SensorDeviceClass.POWER,
+                        key=f"{dev_id_str}-{SENSOR_TYPE_POWER}",
+                        name=f"{entity_config[CONF_NAME]} Power",
+                        native_unit_of_measurement=UnitOfPower.WATT,
+                        # state_class=SensorStateClass.MEASUREMENT,
+                        suggested_display_precision=2,
+                        unique_id=f"{dev_id_str}-{SENSOR_TYPE_POWER}",
+                    )
+                    entities.append(EnOceanPowerSensor(entity_config, description, entity_options))
             case SensorDeviceClass.TEMPERATURE:
                 description = EnOceanSensorEntityDescription(
                     device_class=SensorDeviceClass.TEMPERATURE,
@@ -235,9 +274,12 @@ class EnOceanSensor(EO4HASensor, EnOceanEntity, RestoreSensor):
             self,
             entity_config: dict,
             description: EnOceanSensorEntityDescription,
+            entity_options: dict
     ) -> None:
         """ Initialize the EnOcean sensor device. """
         super().__init__(entity_config[CONF_ID], entity_config[CONF_EEP])
+        if CONF_CHANNEL in entity_options:
+            self.channel = entity_options[CONF_CHANNEL]
         dev_id_str = to_hex_string(self.dev_id)
         self._attr_unique_id = description.unique_id
         # self._attr_device_class = description.device_class
@@ -256,6 +298,9 @@ class EnOceanSensor(EO4HASensor, EnOceanEntity, RestoreSensor):
             return
         if (sensor_data := await self.async_get_last_sensor_data()) is not None:
             self._attr_native_value = sensor_data.native_value
+        await self.async_query_actuator_measurement(0)
+        await self.async_query_actuator_measurement(1)
+
 
     def value_changed(self, packet):
         """ Update the internal state of the sensor. """
@@ -269,6 +314,10 @@ class EnOceanSensor(EO4HASensor, EnOceanEntity, RestoreSensor):
                 self.schedule_update_ha_state()
 
 
+class EnOceanEnergySensor(EO4HAEnergySensor, EnOceanSensor):
+    """ Representation of an EnOcean energy sensor device. """
+
+
 class EnOceanHumiditySensor(EO4HAHumiditySensor, EnOceanSensor):
     """ Representation of an EnOcean humidity sensor device. """
 
@@ -279,16 +328,16 @@ class EnOceanIlluminanceSensor(EO4HAIlluminanceSensor, EnOceanSensor):
 
 class EnOceanPowerSensor(EO4HAPowerSensor, EnOceanSensor):
     """ Representation of an EnOcean power sensor device. """
-
-    def value_changed(self, packet):
-        """ Update the internal state of the sensor. """
-        try:
-            value = self.parse_packet(packet)
-        except (ValueError, LookupError):
-            return
-        if value != self._attr_native_value:
-            self._attr_native_value = value
-            self.schedule_update_ha_state()
+    #
+    # def value_changed(self, packet):
+    #     """ Update the internal state of the sensor. """
+    #     try:
+    #         value = self.parse_packet(packet)
+    #     except (ValueError, LookupError):
+    #         return
+    #     if value != self._attr_native_value:
+    #         self._attr_native_value = value
+    #         self.schedule_update_ha_state()
 
 
 class EnOceanTemperatureSensor(EO4HATemperatureSensor, EnOceanSensor):

@@ -57,7 +57,12 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: EnOceanConfigEntr
     # LOGGER.info(f"init.async_setup_entry")
     if CONF_GATEWAY in config_entry.data:
         hass.data.setdefault(DOMAIN, {})
-        gateway = EnOceanGateway(hass, config_entry.data[CONF_GATEWAY], LOGGER.getEffectiveLevel())
+        gateway = EnOceanGateway(
+            hass=hass,
+            serial_path=config_entry.data[CONF_GATEWAY],
+            # teach_in_callback=teachin_callback,
+            loglevel=LOGGER.getEffectiveLevel()
+        )
         await gateway.load()
         hass.data[DOMAIN] = gateway
         # Store an instance of the "connecting" class that does the work of speaking
@@ -85,24 +90,41 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: EnOceanConfigEntr
     return True
 
 
+def teachin_callback(packet):
+    pass
+    # async def _async_discovery(*_: Any) -> None:
+    #     async_trigger_discovery(
+    #         hass, await async_discover_devices(hass, DISCOVER_SCAN_TIMEOUT)
+    #     )
+    #
+    # hass.async_create_background_task(_async_discovery(), "elkm1 setup discovery")
+    # async_track_time_interval(
+    #     hass, _async_discovery, DISCOVERY_INTERVAL, cancel_on_shutdown=True
+    # )
+
+async def async_remove_entry(hass, entry) -> None:
+    """Handle removal of an entry."""
+    LOGGER.info("REMOVE")
+
 async def async_unload_entry(hass: HomeAssistant, config_entry: EnOceanConfigEntry) -> bool:
     """Unload ENOcean config entry."""
+    print("UNLOAD")
     # enocean_dongle = hass.data[DOMAIN]
     # enocean_dongle.unload()
     # hass.data.pop(DOMAIN)
-
+    return await hass.config_entries.async_unload_platforms(config_entry, PLATFORMS)
     # This is called when an entry/configured device is to be removed. The class
     # needs to unload itself, and remove callbacks. See the classes for further
     # details
-    if unload_ok := await hass.config_entries.async_unload_platforms(config_entry, PLATFORMS):
-        if hasattr(config_entry, 'runtime_data'):
-            gateway: EnOceanGateway = config_entry.runtime_data
-            unload_ok = gateway.unload()
-            # if unload_ok := gateway.unload():
-            #     hass.data.pop(DOMAIN)
+    # if unload_ok := await hass.config_entries.async_unload_platforms(config_entry, PLATFORMS):
+    #     if hasattr(config_entry, 'runtime_data'):
+    #         gateway: EnOceanGateway = config_entry.runtime_data
+    #         unload_ok = gateway.unload()
+    #         # if unload_ok := gateway.unload():
+    #         #     hass.data.pop(DOMAIN)
 
-    return unload_ok
-
+    # return unload_ok
+    return True
 
 async def async_reload_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> None:
     """Reload the config entry when it changed."""
