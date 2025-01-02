@@ -16,7 +16,7 @@ from homeassistant.config_entries import (
     ConfigEntry,
     ConfigFlow,
     ConfigFlowResult,
-    OptionsFlowWithConfigEntry,
+    OptionsFlow,
 )
 from homeassistant.const import CONF_HOST, CONF_NAME, CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant, callback
@@ -31,6 +31,7 @@ from .const import (
     OPTION_DISABLE_KEEP_ALIVE,
     OPTION_DISABLE_KEEP_ALIVE_DEFAULT_VALUE,
 )
+from .coordinator import EnphaseConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -66,9 +67,11 @@ class EnphaseConfigFlow(ConfigFlow, domain=DOMAIN):
 
     @staticmethod
     @callback
-    def async_get_options_flow(config_entry: ConfigEntry) -> EnvoyOptionsFlowHandler:
+    def async_get_options_flow(
+        config_entry: EnphaseConfigEntry,
+    ) -> EnvoyOptionsFlowHandler:
         """Options flow handler for Enphase_Envoy."""
-        return EnvoyOptionsFlowHandler(config_entry)
+        return EnvoyOptionsFlowHandler()
 
     @callback
     def _async_generate_schema(self) -> vol.Schema:
@@ -138,9 +141,13 @@ class EnphaseConfigFlow(ConfigFlow, domain=DOMAIN):
                 and entry.data[CONF_HOST] == self.ip_address
             ):
                 _LOGGER.debug(
-                    "Zeroconf update envoy with this ip and blank serial in unique_id",
+                    "Zeroconf update envoy with this ip and blank unique_id",
                 )
-                title = f"{ENVOY} {serial}" if entry.title == ENVOY else ENVOY
+                # Found an entry with blank unique_id (prior deleted) with same ip
+                # If the title is still default shorthand 'Envoy' then append serial
+                # to differentiate multiple Envoy. Don't change the title if any other
+                # title is still present in the old entry.
+                title = f"{ENVOY} {serial}" if entry.title == ENVOY else entry.title
                 return self.async_update_reload_and_abort(
                     entry, title=title, unique_id=serial, reason="already_configured"
                 )
@@ -236,12 +243,6 @@ class EnphaseConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Add reconfigure step to allow to manually reconfigure a config entry."""
-        return await self.async_step_reconfigure_confirm()
-
-    async def async_step_reconfigure_confirm(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        """Add reconfigure step to allow to manually reconfigure a config entry."""
         reconfigure_entry = self._get_reconfigure_entry()
         errors: dict[str, str] = {}
         description_placeholders: dict[str, str] = {}
@@ -285,7 +286,7 @@ class EnphaseConfigFlow(ConfigFlow, domain=DOMAIN):
 
         suggested_values: Mapping[str, Any] = user_input or reconfigure_entry.data
         return self.async_show_form(
-            step_id="reconfigure_confirm",
+            step_id="reconfigure",
             data_schema=self.add_suggested_values_to_schema(
                 self._async_generate_schema(), suggested_values
             ),
@@ -294,7 +295,7 @@ class EnphaseConfigFlow(ConfigFlow, domain=DOMAIN):
         )
 
 
-class EnvoyOptionsFlowHandler(OptionsFlowWithConfigEntry):
+class EnvoyOptionsFlowHandler(OptionsFlow):
     """Envoy config flow options handler."""
 
     async def async_step_init(

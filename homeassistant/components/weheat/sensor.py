@@ -11,7 +11,13 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.const import UnitOfEnergy, UnitOfPower, UnitOfTemperature
+from homeassistant.const import (
+    PERCENTAGE,
+    REVOLUTIONS_PER_MINUTE,
+    UnitOfEnergy,
+    UnitOfPower,
+    UnitOfTemperature,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import StateType
@@ -96,6 +102,33 @@ SENSORS = [
         value_fn=lambda status: status.air_inlet_temperature,
     ),
     WeHeatSensorEntityDescription(
+        translation_key="thermostat_water_setpoint",
+        key="thermostat_water_setpoint",
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=DISPLAY_PRECISION_WATER_TEMP,
+        value_fn=lambda status: status.thermostat_water_setpoint,
+    ),
+    WeHeatSensorEntityDescription(
+        translation_key="thermostat_room_temperature",
+        key="thermostat_room_temperature",
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=DISPLAY_PRECISION_WATER_TEMP,
+        value_fn=lambda status: status.thermostat_room_temperature,
+    ),
+    WeHeatSensorEntityDescription(
+        translation_key="thermostat_room_temperature_setpoint",
+        key="thermostat_room_temperature_setpoint",
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=DISPLAY_PRECISION_WATER_TEMP,
+        value_fn=lambda status: status.thermostat_room_temperature_setpoint,
+    ),
+    WeHeatSensorEntityDescription(
         translation_key="heat_pump_state",
         key="heat_pump_state",
         name=None,
@@ -114,6 +147,28 @@ SENSORS = [
         device_class=SensorDeviceClass.ENERGY,
         state_class=SensorStateClass.TOTAL_INCREASING,
         value_fn=lambda status: status.energy_total,
+    ),
+    WeHeatSensorEntityDescription(
+        translation_key="energy_output",
+        key="energy_output",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        value_fn=lambda status: status.energy_output,
+    ),
+    WeHeatSensorEntityDescription(
+        translation_key="compressor_rpm",
+        key="compressor_rpm",
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=REVOLUTIONS_PER_MINUTE,
+        value_fn=lambda status: status.compressor_rpm,
+    ),
+    WeHeatSensorEntityDescription(
+        translation_key="compressor_percentage",
+        key="compressor_percentage",
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=PERCENTAGE,
+        value_fn=lambda status: status.compressor_percentage,
     ),
 ]
 
